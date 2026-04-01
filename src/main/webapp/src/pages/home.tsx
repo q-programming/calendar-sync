@@ -17,7 +17,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CircularProgress from "@mui/material/CircularProgress";
-import { Link } from "wouter";
+import { Link } from "react-router-dom";
 
 export default function Home() {
   const { data: profile, isLoading: profileLoading } = useGetProfile();
@@ -158,7 +158,7 @@ export default function Home() {
             <Button
               variant="outlined"
               component={Link}
-              href="/profile"
+              to="/profile"
               endIcon={<ArrowForwardIcon />}
               sx={{ justifyContent: "space-between" }}
             >
@@ -167,7 +167,7 @@ export default function Home() {
             <Button
               variant="outlined"
               component={Link}
-              href="/settings"
+              to="/settings"
               endIcon={<ArrowForwardIcon />}
               sx={{ justifyContent: "space-between" }}
             >

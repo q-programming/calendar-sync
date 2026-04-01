@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { Link, useLocation } from "react-router-dom";
 import { createContext, useContext, useState } from "react";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
@@ -31,7 +31,7 @@ const navigation = [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const toggle = () => setCollapsed((c) => !c);
   const drawerWidth = collapsed ? DRAWER_COLLAPSED_WIDTH : DRAWER_WIDTH;
@@ -79,12 +79,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Divider />
           <List sx={{ px: 1, pt: 1 }}>
             {navigation.map((item) => {
-              const isActive = location === item.href;
+              const isActive = location.pathname === item.href;
               const button = (
                 <ListItemButton
                   key={item.name}
                   component={Link}
-                  href={item.href}
+                  to={item.href}
                   selected={isActive}
                   sx={{
                     borderRadius: 1,

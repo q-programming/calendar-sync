@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -13,27 +13,21 @@ import LogsPage from "@/pages/logs";
 
 const queryClient = new QueryClient();
 
-function Router() {
-  return (
-    <Switch>
-      <Route path="/" component={Home} />
-      <Route path="/profile" component={ProfilePage} />
-      <Route path="/settings" component={SettingsPage} />
-      <Route path="/logs" component={LogsPage} />
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
 function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <QueryClientProvider client={queryClient}>
         <SnackbarProvider>
-          <WouterRouter base="">
-            <Router />
-          </WouterRouter>
+          <BrowserRouter basename="/calendarsync">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/logs" element={<LogsPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
         </SnackbarProvider>
       </QueryClientProvider>
     </ThemeProvider>
