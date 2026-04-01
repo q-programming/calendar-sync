@@ -1,47 +1,43 @@
-import { useMemo, useState } from 'react';
-import './App.css';
-import { Weather } from './modules/weather/components/Weather.tsx';
-import { Header } from './modules/header/Header.tsx';
-import { Box, CssBaseline, ThemeProvider } from '@mui/material';
-import { darkTheme, lightTheme } from './theme/theme.ts';
-import { Calendar } from './modules/calendar/components/Calendar.tsx';
-import Footer from './modules/footer/Footer';
+import { Switch, Route, Router as WouterRouter } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ThemeProvider } from "@mui/material/styles";
+import CssBaseline from "@mui/material/CssBaseline";
+import theme from "@/theme";
+import { SnackbarProvider } from "@/components/snackbar-provider";
+import NotFound from "@/pages/not-found";
+
+import Home from "@/pages/home";
+import ProfilePage from "@/pages/profile";
+import SettingsPage from "@/pages/settings";
+import LogsPage from "@/pages/logs";
+
+const queryClient = new QueryClient();
+
+function Router() {
+  return (
+    <Switch>
+      <Route path="/" component={Home} />
+      <Route path="/profile" component={ProfilePage} />
+      <Route path="/settings" component={SettingsPage} />
+      <Route path="/logs" component={LogsPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
 
 function App() {
-    // State to track if we're using dark mode
-    const [isDarkMode, setIsDarkMode] = useState<boolean>(
-        // Initialize based on user preference if available, otherwise use system preference
-        localStorage.getItem('themeMode') === 'dark' ||
-            (!localStorage.getItem('themeMode') &&
-                window.matchMedia('(prefers-color-scheme: dark)').matches),
-    );
-
-    // Create the theme based on the current mode
-    const theme = useMemo(() => {
-        return isDarkMode ? darkTheme : lightTheme;
-    }, [isDarkMode]);
-
-    // Function to toggle theme mode
-    const handleToggleTheme = () => {
-        const newMode = !isDarkMode;
-        setIsDarkMode(newMode);
-        localStorage.setItem('themeMode', newMode ? 'dark' : 'light');
-    };
-
-    return (
-        <ThemeProvider theme={theme}>
-            <CssBaseline /> {/* This applies the base styles from the theme */}
-            <Box
-                sx={{ minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column' }}
-            >
-                <Header onToggleTheme={handleToggleTheme} />
-                <Weather />
-                <Calendar />
-                <Box sx={{ flexGrow: 1 }} />
-                <Footer />
-            </Box>
-        </ThemeProvider>
-    );
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <QueryClientProvider client={queryClient}>
+        <SnackbarProvider>
+          <WouterRouter base="">
+            <Router />
+          </WouterRouter>
+        </SnackbarProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
+  );
 }
 
 export default App;

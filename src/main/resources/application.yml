@@ -12,7 +12,7 @@ spring:
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             scope:
               - openid
-              - https://www.googleapis.com/auth/calendar.readonly
+              - https://www.googleapis.com/auth/calendar
         provider:
           google:
             authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
@@ -28,6 +28,11 @@ spring:
   sql:
     init:
       mode: always
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    defer-datasource-initialization: true
 logging:
   level:
     org:
@@ -37,9 +42,9 @@ server:
   servlet:
     context-path: /calendarsync
     session:
-      timeout: 14d           # Keep server-side session alive for 14 days
+      timeout: 14d
       cookie:
-        max-age: 14d         # Make JSESSIONID persistent for 14 days
-        same-site: Lax       # Helps the browser keep the cookie across restarts and top-level navs
-        secure: true         #  serving over HTTPS
+        max-age: 14d
+        same-site: Lax
+        secure: true
   port: 8080

@@ -1,11 +1,18 @@
 spring:
   application:
-    name: Daily App Test
-  profiles:
-    active: test
-  cache:
-    type: simple
-    cache-names: weatherData, calendarList, calendarEvents
+    name: Calendar Sync Test
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+  jpa:
+    hibernate:
+      ddl-auto: none
+    defer-datasource-initialization: true
   security:
     oauth2:
       client:
@@ -16,12 +23,9 @@ spring:
             scope:
               - email
               - profile
-              - https://www.googleapis.com/auth/calendar.readonly
+              - https://www.googleapis.com/auth/calendar
 
-# Logging configuration for tests
 logging:
   level:
-    root: INFO
-    pl.qprogramming: DEBUG
-    org.springframework.web: INFO
-    org.springframework.security: INFO
+    root: WARN
+    pl.qprogramming: INFO

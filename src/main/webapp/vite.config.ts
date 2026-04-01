@@ -2,19 +2,20 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-// https://vite.dev/config/
 export default defineConfig({
     base: '/calendarsync',
     plugins: [react()],
     resolve: {
         alias: {
+            '@': path.resolve(__dirname, './src'),
             '@api': path.resolve(__dirname, './src/api.ts'),
-            '@api/*': path.resolve(__dirname, './client-api'),
+            // Note: '@api/*' wildcard alias handled by tsconfig for type-checking;
+            // at runtime, '@api/X' resolves via the '@api' prefix above
         },
     },
     build: {
         commonjsOptions: {
-            transformMixedEsModules: true, // Enable mixed module transformation
+            transformMixedEsModules: true,
             include: [/client-api/, /node_modules/],
         },
     },

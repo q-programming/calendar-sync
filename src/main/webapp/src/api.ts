@@ -1,12 +1,17 @@
 /**
- * This file serves as a bridge to the auto-generated api-client
- * By importing from this file instead of directly from the api-client,
- * you ensure consistent imports across development and production builds.
+ * Bridge to the openapi-generator axios client.
+ * New UI pages use @/lib/api-client-react hooks instead.
+ * This file remains for legacy/direct axios usage.
  */
-
-// Re-export everything from the api-client
 export * from '../client-api';
-
-// Explicitly export the classes that aren't properly exported through the wildcard
-export {Configuration} from '../client-api/configuration';
-export {AuthApi, GoogleApi, LogsApi, SettingsApi} from '../client-api/api';
+export { Configuration } from '../client-api/configuration';
+export {
+  AuthApi,
+  GoogleApi,
+  HealthApi,
+  LogsApi,
+  OutlookApi,
+  ProfileApi,
+  SettingsApi,
+  SyncApi,
+} from '../client-api/api';

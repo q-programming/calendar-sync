@@ -1,48 +1,100 @@
 openapi: 3.0.3
 info:
-  title: Outlook to Google Calendar Sync API
-  description: API for one-way synchronization from Microsoft Outlook (M365) calendar to Google Calendar
+  title: Api
   version: 1.1.0
+  description: Outlook to Google Calendar Sync API
 servers:
   - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: profile
+    description: User profile
+  - name: outlook
+    description: Outlook calendar operations
+  - name: google
+    description: Google calendar operations
+  - name: settings
+    description: Sync settings
+  - name: sync
+    description: Sync operations
+  - name: logs
+    description: Sync logs
+
 paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
   /auth/login:
     get:
+      operationId: authLogin
       tags: [auth]
       summary: Start Google OAuth2 login
       description: Redirects user to Google OAuth2 authorization flow
       responses:
-        '302':
+        "302":
           description: Redirect to Google OAuth
 
   /profile:
     get:
+      operationId: getProfile
       tags: [profile]
       summary: Get user profile and connection status
       responses:
-        '200':
+        "200":
           description: Profile info
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Profile'
+                $ref: "#/components/schemas/Profile"
+
+  /profile/outlook/connect:
+    post:
+      operationId: connectOutlook
+      tags: [outlook]
+      summary: Connect Outlook by providing a profile file path
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutlookConnection"
+      responses:
+        "204":
+          description: Connected
 
   /profile/outlook/calendars:
     get:
+      operationId: getOutlookCalendars
       tags: [outlook]
       summary: List Outlook mailbox calendars
       responses:
-        '200':
+        "200":
           description: Outlook calendars
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CalendarRef'
+                  $ref: "#/components/schemas/CalendarRef"
 
   /profile/outlook/calendar:
     put:
+      operationId: setOutlookCalendar
       tags: [outlook]
       summary: Select default Outlook calendar
       requestBody:
@@ -50,26 +102,29 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CalendarSelection'
+              $ref: "#/components/schemas/CalendarSelection"
       responses:
-        '204': { description: Updated }
+        "204":
+          description: Updated
 
   /profile/google/calendars:
     get:
+      operationId: getGoogleCalendars
       tags: [google]
       summary: List Google calendars
       responses:
-        '200':
+        "200":
           description: Google calendars
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CalendarRef'
+                  $ref: "#/components/schemas/CalendarRef"
 
   /profile/google/calendar:
     put:
+      operationId: setGoogleCalendar
       tags: [google]
       summary: Select target Google calendar
       requestBody:
@@ -77,23 +132,25 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CalendarSelection'
+              $ref: "#/components/schemas/CalendarSelection"
       responses:
-        '204': { description: Updated }
+        "204":
+          description: Updated
 
   /settings:
     get:
+      operationId: getSettings
       tags: [settings]
       summary: Get sync settings
       responses:
-        '200':
+        "200":
           description: Sync settings
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SyncSettings'
-
+                $ref: "#/components/schemas/SyncSettings"
     put:
+      operationId: updateSettings
       tags: [settings]
       summary: Update sync settings
       requestBody:
@@ -101,26 +158,29 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SyncSettings'
+              $ref: "#/components/schemas/SyncSettings"
       responses:
-        '204': { description: Updated }
+        "204":
+          description: Updated
 
   /sync/run:
     post:
+      operationId: triggerSync
       tags: [sync]
       summary: Trigger sync manually
       responses:
-        '200':
-          description: Sync run started
+        "200":
+          description: Sync run result
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SyncRun'
+                $ref: "#/components/schemas/SyncRun"
 
   /logs:
     get:
+      operationId: getLogs
       tags: [logs]
-      summary: List past sync runs (paged & filterable)
+      summary: List past sync runs (paged and filterable)
       parameters:
         - name: page
           in: query
@@ -143,15 +203,16 @@ paths:
             type: string
             enum: [SUCCESS, FAILED]
       responses:
-        '200':
+        "200":
           description: Paged sync logs
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PagedSyncRuns'
+                $ref: "#/components/schemas/PagedSyncRuns"
 
   /logs/{runId}:
     get:
+      operationId: getLogDetails
       tags: [logs]
       summary: Get full log details for a sync run
       parameters:
@@ -161,28 +222,54 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Full sync run log
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SyncRunDetails'
+                $ref: "#/components/schemas/SyncRunDetails"
 
 components:
   schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
     Profile:
       type: object
       properties:
         googleConnected:
           type: boolean
+        outlookConnected:
+          type: boolean
+        outlookProfilePath:
+          type: string
         outlookCalendarId:
+          type: string
+        outlookCalendarName:
           type: string
         googleCalendarId:
           type: string
+        googleCalendarName:
+          type: string
+      required:
+        - googleConnected
+        - outlookConnected
+
+    OutlookConnection:
+      type: object
+      properties:
+        profilePath:
+          type: string
+      required:
+        - profilePath
 
     CalendarRef:
       type: object
-      required: [id, name]
       properties:
         id:
           type: string
@@ -192,13 +279,17 @@ components:
           type: string
         color:
           type: string
+      required:
+        - id
+        - name
 
     CalendarSelection:
       type: object
-      required: [calendarId]
       properties:
         calendarId:
           type: string
+      required:
+        - calendarId
 
     SyncSettings:
       type: object
@@ -214,6 +305,11 @@ components:
           minimum: 0
         debugLogging:
           type: boolean
+      required:
+        - frequencyMinutes
+        - daysPast
+        - daysFuture
+        - debugLogging
 
     SyncRun:
       type: object
@@ -237,6 +333,10 @@ components:
           type: integer
         message:
           type: string
+      required:
+        - id
+        - startedAt
+        - status
 
     PagedSyncRuns:
       type: object
@@ -244,7 +344,7 @@ components:
         content:
           type: array
           items:
-            $ref: '#/components/schemas/SyncRun'
+            $ref: "#/components/schemas/SyncRun"
         page:
           type: integer
         size:
@@ -253,16 +353,25 @@ components:
           type: integer
         totalPages:
           type: integer
+      required:
+        - content
+        - page
+        - size
+        - totalElements
+        - totalPages
 
     SyncRunDetails:
       type: object
       properties:
         run:
-          $ref: '#/components/schemas/SyncRun'
+          $ref: "#/components/schemas/SyncRun"
         entries:
           type: array
           items:
-            $ref: '#/components/schemas/LogEntry'
+            $ref: "#/components/schemas/LogEntry"
+      required:
+        - run
+        - entries
 
     LogEntry:
       type: object
@@ -275,3 +384,7 @@ components:
           enum: [INFO, DEBUG, WARN, ERROR]
         message:
           type: string
+      required:
+        - timestamp
+        - level
+        - message

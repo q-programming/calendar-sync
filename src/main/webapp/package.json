@@ -21,15 +21,17 @@
     "@mui/icons-material": "7.3.1",
     "@mui/material": "7.3.1",
     "axios": "^1.11.0",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0",
     "i18next": "25.3.4",
     "i18next-browser-languagedetector": "8.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-google-calendar-api": "2.3.0",
-    "react-i18next": "15.6.1"
+    "react-i18next": "15.6.1",
+    "@tanstack/react-query": "^5.0.0",
+    "wouter": "^3.3.5",
+    "zod": "^3.25.0",
+    "@hookform/resolvers": "^3.0.0",
+    "react-hook-form": "^7.55.0",
+    "date-fns": "^3.6.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.1",
@@ -60,7 +62,8 @@
     "vite": "^7.1.1",
     "vite-plugin-pwa": "^1.0.2",
     "vitest": "3.2.4",
-    "vitest-browser-react": "1.0.1"
+    "vitest-browser-react": "1.0.1",
+    "@hookform/resolvers": "^3.10.0"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx}": [
