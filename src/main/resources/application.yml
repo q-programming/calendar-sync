@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: Calendar Sync App
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: CLIENT_ID
+            client-secret: CLIENT_SECRET
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - openid
+              - https://www.googleapis.com/auth/calendar.readonly
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://www.googleapis.com/oauth2/v4/token
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
+            user-name-attribute: sub
+  datasource:
+    url: jdbc:h2:file:/usr/local/daily/calendarsync;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+logging:
+  level:
+    org:
+      springframework:
+        security: WARN
+server:
+  servlet:
+    context-path: /calendarsync
+    session:
+      timeout: 14d           # Keep server-side session alive for 14 days
+      cookie:
+        max-age: 14d         # Make JSESSIONID persistent for 14 days
+        same-site: Lax       # Helps the browser keep the cookie across restarts and top-level navs
+        secure: true         #  serving over HTTPS
+  port: 8080
