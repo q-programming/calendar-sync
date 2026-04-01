@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@/lib/api-client-react/index";
+import { useGetSettings, useUpdateSettings, settingsKeys } from "@/services/settings.service";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSnackbar } from "@/components/snackbar-provider";
 import { useForm, Controller } from "react-hook-form";
@@ -62,11 +62,11 @@ export default function SettingsPage() {
 
   const onSubmit = (data: SettingsFormValues) => {
     updateSettings.mutate(
-      { data },
+      data,
       {
         onSuccess: () => {
           showSnackbar("Settings saved successfully");
-          queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: settingsKeys.settings() });
         },
         onError: () => showSnackbar("Failed to save settings", "error"),
       }

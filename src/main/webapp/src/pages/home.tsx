@@ -1,5 +1,7 @@
 import { Layout } from "@/components/layout";
-import { useGetProfile, useGetSettings, useTriggerSync, getGetLogsQueryKey } from "@/lib/api-client-react/index";
+import { useGetProfile } from "@/services/profile.service";
+import { useGetSettings } from "@/services/settings.service";
+import { useTriggerSync } from "@/services/sync.service";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSnackbar } from "@/components/snackbar-provider";
 import Box from "@mui/material/Box";
@@ -28,7 +30,7 @@ export default function Home() {
     triggerSync.mutate(undefined, {
       onSuccess: () => {
         showSnackbar("A manual sync run has been started.", "success");
-        queryClient.invalidateQueries({ queryKey: getGetLogsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["logs"] });
       },
       onError: () => {
         showSnackbar("There was an error triggering the sync.", "error");

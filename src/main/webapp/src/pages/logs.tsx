@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useGetLogs, useGetLogDetails, getGetLogDetailsQueryKey } from "@/lib/api-client-react/index";
+import { useGetLogs, useGetLogDetails } from "@/services/logs.service";
 import { useState } from "react";
 import { format } from "date-fns";
 import Box from "@mui/material/Box";
@@ -39,10 +39,7 @@ export default function LogsPage() {
   });
 
   const { data: logDetails, isLoading: detailsLoading } = useGetLogDetails(selectedRunId ?? "", {
-    query: {
-      enabled: !!selectedRunId,
-      queryKey: getGetLogDetailsQueryKey(selectedRunId ?? ""),
-    },
+    enabled: !!selectedRunId,
   });
 
   const handleStatusChange = (value: string) => {

@@ -2,14 +2,12 @@ import { Layout } from "@/components/layout";
 import {
   useGetProfile,
   useGetOutlookCalendars,
-  getGetOutlookCalendarsQueryKey,
   useGetGoogleCalendars,
-  getGetGoogleCalendarsQueryKey,
   useSetOutlookCalendar,
   useSetGoogleCalendar,
   useConnectOutlook,
-  getGetProfileQueryKey,
-} from "@/lib/api-client-react/index";
+  profileKeys,
+} from "@/services/profile.service";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSnackbar } from "@/components/snackbar-provider";
 import { useState } from "react";
@@ -36,11 +34,11 @@ export default function ProfilePage() {
   const [profilePath, setProfilePath] = useState("");
 
   const { data: outlookCalendars, isLoading: outlookLoading } = useGetOutlookCalendars({
-    query: { enabled: !!profile?.outlookConnected, queryKey: getGetOutlookCalendarsQueryKey() },
+    enabled: !!profile?.outlookConnected,
   });
 
   const { data: googleCalendars, isLoading: googleLoading } = useGetGoogleCalendars({
-    query: { enabled: !!profile?.googleConnected, queryKey: getGetGoogleCalendarsQueryKey() },
+    enabled: !!profile?.googleConnected,
   });
 
   const setOutlookCalendar = useSetOutlookCalendar();
@@ -55,11 +53,11 @@ export default function ProfilePage() {
       return;
     }
     connectOutlook.mutate(
-      { data: { profilePath: profilePath.trim() } },
+      { profilePath: profilePath.trim() },
       {
         onSuccess: () => {
           showSnackbar("Outlook connected successfully.");
-          queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
+          queryClient.invalidateQueries({ queryKey: profileKeys.profile() });
         },
         onError: () => showSnackbar("Failed to connect Outlook.", "error"),
       }
@@ -68,11 +66,11 @@ export default function ProfilePage() {
 
   const handleOutlookCalendarChange = (calendarId: string) => {
     setOutlookCalendar.mutate(
-      { data: { calendarId } },
+      { calendarId },
       {
         onSuccess: () => {
           showSnackbar("Outlook Calendar Updated");
-          queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
+          queryClient.invalidateQueries({ queryKey: profileKeys.profile() });
         },
         onError: () => showSnackbar("Failed to update calendar", "error"),
       }
@@ -81,11 +79,11 @@ export default function ProfilePage() {
 
   const handleGoogleCalendarChange = (calendarId: string) => {
     setGoogleCalendar.mutate(
-      { data: { calendarId } },
+      { calendarId },
       {
         onSuccess: () => {
           showSnackbar("Google Calendar Updated");
-          queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
+          queryClient.invalidateQueries({ queryKey: profileKeys.profile() });
         },
         onError: () => showSnackbar("Failed to update calendar", "error"),
       }
