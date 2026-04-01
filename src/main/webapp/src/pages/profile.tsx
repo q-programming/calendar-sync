@@ -91,7 +91,7 @@ export default function ProfilePage() {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = "/api/auth/login";
+    window.location.href = `${import.meta.env.BASE_URL}api/auth/login`;
   };
 
   if (profileLoading) {
