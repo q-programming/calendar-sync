@@ -4,7 +4,7 @@ import {triggerSync} from '@/store/syncSlice';
 import {fetchProfileSilent} from '@/store/profileSlice';
 import {fetchLogs} from '@/store/logsSlice';
 import {useSnackbar} from '@/components/snackbar-provider';
-import {useCallback, useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -28,20 +28,42 @@ export default function Home() {
     const list = useAppSelector(s => s.logs.list);
     const {showSnackbar} = useSnackbar();
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const prevSyncRunning = useRef<boolean>(false);
+    // triggeredRef: true from click until we confirm sync finished (handles fast + slow runs)
+    const triggeredRef = useRef<boolean>(false);
+    const [triggering, setTriggering] = useState(false);
 
     const syncRunning = profile?.syncRunning ?? false;
+    const busy = triggering || syncRunning;
 
     const fetchCurrentLogs = useCallback(() => {
-        dispatch(fetchLogs({
-            page: 0,
-            size: 1,
-        }));
+        dispatch(fetchLogs({ page: 0, size: 1 }));
     }, [dispatch]);
 
-    // Poll /api/profile every 2s while sync is running so the button reflects live state
+    const onSyncDone = useCallback(() => {
+        triggeredRef.current = false;
+        setTriggering(false);
+        showSnackbar('Sync complete.', 'success');
+        dispatch(fetchLogs({ page: 0, size: 1 }));
+    }, [dispatch, showSnackbar]);
+
+    // Detect syncRunning transitions
+    useEffect(() => {
+        // false→true: server confirmed sync started
+        if (syncRunning && !prevSyncRunning.current) {
+            setTriggering(false);
+        }
+        // true→false: sync just finished
+        if (!syncRunning && prevSyncRunning.current) {
+            onSyncDone();
+        }
+        prevSyncRunning.current = syncRunning;
+    }, [syncRunning, onSyncDone]);
+
+    // Poll /api/profile every 2s while busy so the button reflects live state
     useEffect(() => {
         fetchCurrentLogs();
-        if (syncRunning) {
+        if (busy) {
             if (!pollRef.current) {
                 pollRef.current = setInterval(() => {
                     dispatch(fetchProfileSilent());
@@ -51,7 +73,6 @@ export default function Home() {
             if (pollRef.current) {
                 clearInterval(pollRef.current);
                 pollRef.current = null;
-                dispatch(fetchLogs({}));
             }
         }
         return () => {
@@ -60,13 +81,29 @@ export default function Home() {
                 pollRef.current = null;
             }
         };
-    }, [syncRunning, dispatch, fetchCurrentLogs]);
+    }, [busy, dispatch, fetchCurrentLogs]);
 
     const handleRunSync = () => {
-        dispatch(triggerSync()).then(() => {
-            showSnackbar('Sync started.', 'success');
-            dispatch(fetchProfileSilent());
-        });
+        triggeredRef.current = true;
+        setTriggering(true);
+        showSnackbar('Sync triggered…', 'info');
+        dispatch(triggerSync())
+            .then(() => {
+                // Fetch profile immediately — if sync already finished (fast run),
+                // this will return syncRunning=false and we detect completion via poll.
+                dispatch(fetchProfileSilent()).then((action: any) => {
+                    const profileResult = action.payload;
+                    if (triggeredRef.current && profileResult && !profileResult.syncRunning) {
+                        // Sync finished before our first poll — complete immediately
+                        onSyncDone();
+                    }
+                });
+            })
+            .catch(() => {
+                triggeredRef.current = false;
+                setTriggering(false);
+                showSnackbar('Failed to trigger sync.', 'error');
+            });
     };
 
     const StatusIcon = ({connected}: { connected?: boolean }) =>
@@ -161,14 +198,14 @@ export default function Home() {
                         <Button
                             variant="contained"
                             size="large"
-                            startIcon={syncRunning ? <CircularProgress size={18} color="inherit"/> : <PlayArrowIcon/>}
+                            startIcon={busy ? <CircularProgress size={18} color="inherit"/> : <PlayArrowIcon/>}
                             onClick={handleRunSync}
-                            disabled={syncRunning || !profile?.outlookConnected || !profile?.googleConnected}
+                            disabled={busy || !profile?.outlookConnected || !profile?.googleConnected}
                             sx={{py: 2, justifyContent: 'flex-start'}}
                         >
                             <Box sx={{textAlign: 'left'}}>
                                 <Typography variant="body2" sx={{color: 'inherit', fontWeight: 500}}>
-                                    {syncRunning ? 'Sync Running…' : 'Run Sync Now'}
+                                    {triggering ? 'Starting…' : syncRunning ? 'Sync Running…' : 'Run Sync Now'}
                                 </Typography>
                                 <Typography variant="caption" sx={{opacity: 0.7}}>Trigger manual job</Typography>
                             </Box>

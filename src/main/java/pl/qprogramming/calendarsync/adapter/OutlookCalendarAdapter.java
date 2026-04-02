@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;
 
@@ -251,7 +252,11 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             Date baseDate = appt.getStartTime();
             if (baseDate == null) return;
 
-            ZoneId zone         = resolveZone(appt.getStartTimeZone());
+            // For recurrence expansion, use a DST-aware IANA zone so that wall-clock time
+            // (e.g. 09:00) is preserved across DST transitions when adding weeks/days.
+            // resolveZone() uses SimpleTimeZone (fixed offset) for correct single-event
+            // UTC math, but here we need the named zone.
+            ZoneId zone         = resolveIanaZone(appt.getStartTimeZone());
             ZonedDateTime baseStart = baseDate.toInstant().atZone(zone);
             ZonedDateTime baseEnd   = appt.getEndTime() != null
                     ? appt.getEndTime().toInstant().atZone(zone)
@@ -353,6 +358,12 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             } else {
                 log.debug("Recurring '{}' had 0 occurrences in range after deleted-instance filtering", subject);
             }
+
+            // ── Modified (moved) occurrences ────────────────────────────────────────────
+            // ExceptionInfo array starts after EndDate in the AppointmentRecurrencePattern block.
+            // Layout: WriterVersion2(4) ReaderVersion2(4) StartTimeOffset(4) EndTimeOffset(4) ExceptionCount(2)
+            int arPos = endDateOffset + 4;
+            generated += readExceptionOccurrences(blob, arPos, zone, baseId, subject, body, location, allDay, colorIndex, range, result);
         } catch (Exception e) {
             log.debug("Failed to expand recurrence for '{}': {}", appt.getSubject(), e.getMessage());
             fallbackRecurring(appt, range, result);
@@ -368,6 +379,76 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
         } catch (Exception e) {
             log.debug("Fallback recurring parse failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Parse the AppointmentRecurrencePattern ExceptionInfo array from {@code blob} starting at {@code arPos}.
+     * Each ExceptionInfo represents a moved/modified recurring occurrence.
+     * Returns the number of exceptions added to {@code result}.
+     *
+     * MS-OXOCAL §2.2.1.44.2 — AppointmentRecurrencePattern layout at arPos:
+     *   WriterVersion2(4) ReaderVersion2(4) StartTimeOffset(4) EndTimeOffset(4) ExceptionCount(2)
+     *   ExceptionInfo[ExceptionCount]: StartDateTime(4) EndDateTime(4) OriginalStartDate(4) OverrideFlags(2) [optional fields]
+     */
+    int readExceptionOccurrences(byte[] blob, int arPos, ZoneId zone,
+                                  String baseId, String subject, String body,
+                                  String location, boolean allDay, int colorIndex,
+                                  DateRange range, List<OutlookEvent> result) {
+        if (blob.length < arPos + 18) return 0;
+        ByteBuffer buf = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN);
+        int exCount = buf.getShort(arPos + 16) & 0xFFFF;
+        int excPos  = arPos + 18;
+        int added   = 0;
+        for (int i = 0; i < exCount && excPos + 14 <= blob.length; i++) {
+            long startMin = buf.getInt(excPos)     & 0xFFFFFFFFL;
+            long endMin   = buf.getInt(excPos + 4) & 0xFFFFFFFFL;
+            long origMin  = buf.getInt(excPos + 8) & 0xFFFFFFFFL;
+            int overFlags = buf.getShort(excPos + 12) & 0xFFFF;
+            excPos += 14;
+
+            // ExceptionInfo times are local-timezone wall-clock minutes from 1601
+            ZonedDateTime excStart = localMinToZdt(startMin, zone);
+            ZonedDateTime excEnd   = localMinToZdt(endMin,   zone);
+
+            String excSubject  = subject;
+            String excLocation = location;
+
+            // ARO_SUBJECT (0x0001): optional override
+            if ((overFlags & 0x0001) != 0 && excPos + 4 <= blob.length) {
+                int sLen = buf.getShort(excPos) & 0xFFFF;
+                excPos += 4;
+                if (sLen > 1 && excPos + sLen - 1 <= blob.length) {
+                    excSubject = new String(blob, excPos, sLen - 1, StandardCharsets.ISO_8859_1);
+                    excPos += sLen - 1;
+                }
+            }
+            if ((overFlags & 0x0002) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_MEETINGTYPE
+            if ((overFlags & 0x0004) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_REMINDERDELTA
+            if ((overFlags & 0x0008) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_REMINDER
+            // ARO_LOCATION (0x0010): optional override
+            if ((overFlags & 0x0010) != 0 && excPos + 4 <= blob.length) {
+                int lLen = buf.getShort(excPos) & 0xFFFF;
+                excPos += 4;
+                if (lLen > 1 && excPos + lLen - 1 <= blob.length) {
+                    excLocation = new String(blob, excPos, lLen - 1, StandardCharsets.ISO_8859_1);
+                    excPos += lLen - 1;
+                }
+            }
+            if ((overFlags & 0x0020) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_BUSYSTATUS
+            if ((overFlags & 0x0040) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_ATTACHMENT
+            if ((overFlags & 0x0080) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_SUBTYPE
+            if ((overFlags & 0x0100) != 0 && excPos + 4 <= blob.length) excPos += 4; // ARO_APPTCOLOR
+
+            if (!excStart.isAfter(range.to()) && !excEnd.isBefore(range.from())) {
+                String excId = baseId + "_ex_" + origMin;
+                log.debug("  Including modified occurrence of '{}' at {} (origMin={})", excSubject, excStart, origMin);
+                result.add(new OutlookEvent(excId, excSubject, body, excLocation, excStart, excEnd, allDay, colorIndex));
+                added++;
+            } else {
+                log.debug("  Modified occurrence of '{}' at {} is outside range — skipping", excSubject, excStart);
+            }
+        }
+        return added;
     }
 
     private ZonedDateTime nextOccurrence(ZonedDateTime current, short recurFreq, int period) {
@@ -401,7 +482,25 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
         }
     }
 
-    private ZoneId resolveZone(com.pff.PSTTimeZone pstTz) {
+    ZoneId resolveZone(com.pff.PSTTimeZone pstTz) {
+        if (pstTz == null) return ZoneId.of("UTC");
+        // libpst returns getStartTime() already adjusted by the Windows "Standard Time" offset
+        // (no DST applied). Use the fixed-offset SimpleTimeZone first so the math is consistent.
+        // WINDOWS_TZ_MAP (DST-aware IANA zones) would shift times by an extra hour in summer.
+        java.util.SimpleTimeZone stz = pstTz.getSimpleTimeZone();
+        if (stz != null) { try { return stz.toZoneId(); } catch (Exception ignored) {} }
+        // Fallback: try the name as IANA directly, then map
+        String name = pstTz.getName();
+        if (name != null && !name.isBlank()) {
+            try { return ZoneId.of(name); } catch (Exception ignored) {}
+            ZoneId mapped = WINDOWS_TZ_MAP.get(name);
+            if (mapped != null) return mapped;
+        }
+        return ZoneId.of("UTC");
+    }
+
+    /** DST-aware zone for recurrence expansion: wall-clock time must be preserved across DST transitions. */
+    ZoneId resolveIanaZone(com.pff.PSTTimeZone pstTz) {
         if (pstTz == null) return ZoneId.of("UTC");
         String name = pstTz.getName();
         if (name != null && !name.isBlank()) {
@@ -409,30 +508,53 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             ZoneId mapped = WINDOWS_TZ_MAP.get(name);
             if (mapped != null) return mapped;
         }
+        // Fallback to fixed-offset (no DST correction possible)
         java.util.SimpleTimeZone stz = pstTz.getSimpleTimeZone();
         if (stz != null) { try { return stz.toZoneId(); } catch (Exception ignored) {} }
         return ZoneId.of("UTC");
     }
 
-    private static final Map<String, ZoneId> WINDOWS_TZ_MAP = Map.ofEntries(
-        Map.entry("Central European Standard Time", ZoneId.of("Europe/Warsaw")),
-        Map.entry("Central European Time",          ZoneId.of("Europe/Warsaw")),
-        Map.entry("Eastern Standard Time",          ZoneId.of("America/New_York")),
-        Map.entry("Eastern Time",                   ZoneId.of("America/New_York")),
-        Map.entry("Pacific Standard Time",          ZoneId.of("America/Los_Angeles")),
-        Map.entry("Pacific Time",                   ZoneId.of("America/Los_Angeles")),
-        Map.entry("GMT Standard Time",              ZoneId.of("Europe/London")),
-        Map.entry("Greenwich Mean Time",            ZoneId.of("Europe/London")),
-        Map.entry("UTC",                            ZoneId.of("UTC")),
-        Map.entry("W. Europe Standard Time",        ZoneId.of("Europe/Berlin")),
-        Map.entry("Romance Standard Time",          ZoneId.of("Europe/Paris")),
-        Map.entry("India Standard Time",            ZoneId.of("Asia/Kolkata")),
-        Map.entry("IST",                            ZoneId.of("Asia/Kolkata"))
-    );
+    private static final Map<String, ZoneId> WINDOWS_TZ_MAP;
+    static {
+        Map<String, ZoneId> m = new java.util.HashMap<>();
+        try (java.io.InputStream is = OutlookCalendarAdapter.class.getClassLoader()
+                .getResourceAsStream("windows-timezones.properties");
+             java.io.BufferedReader reader = is != null
+                     ? new java.io.BufferedReader(new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8))
+                     : null) {
+            if (reader != null) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.strip();
+                    if (line.isEmpty() || line.startsWith("#")) continue;
+                    int eq = line.indexOf('=');
+                    if (eq <= 0) continue;
+                    String key = line.substring(0, eq).strip();
+                    String val = line.substring(eq + 1).strip();
+                    try { m.put(key, ZoneId.of(val)); } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception e) {
+            // fallback: map stays empty, SimpleTimeZone offset used instead
+        }
+        WINDOWS_TZ_MAP = java.util.Collections.unmodifiableMap(m);
+    }
 
     private ZonedDateTime toZdt(Date date, ZoneId zone) {
         if (date == null) return null;
         return date.toInstant().atZone(zone);
+    }
+
+    /**
+     * Convert ExceptionInfo local-timezone minutes-from-1601 to ZonedDateTime.
+     * ExceptionInfo.StartDateTime/EndDateTime are wall-clock local time, not UTC.
+     * We recover the LocalDateTime by subtracting the 1601→epoch offset (treating delta as UTC seconds),
+     * then attach the appointment's timezone to get the correct instant.
+     */
+    ZonedDateTime localMinToZdt(long localMin1601, ZoneId zone) {
+        long localSec = (localMin1601 - MINUTES_1601_TO_EPOCH) * 60L;
+        LocalDateTime ldt = LocalDateTime.ofEpochSecond(localSec, 0, ZoneOffset.UTC);
+        return ldt.atZone(zone);
     }
 
     private void validateProfilePath(String profilePath) {

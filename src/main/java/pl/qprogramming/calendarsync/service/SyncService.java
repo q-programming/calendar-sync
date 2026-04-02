@@ -89,7 +89,7 @@ public class SyncService {
                         now.minusDays(settings.getDaysPast()),
                         now.plusDays(settings.getDaysFuture()));
 
-                logService.info("Starting sync. Range: %s to %s", range.from(), range.to());
+                logService.info("Starting sync. Range: %s to %s", formatDate(range.from()), formatDate(range.to()));
 
                 List<OutlookEvent> outlookEvents = outlookPort.readEvents(outlookPath, outlookCalendarId, range);
                 logService.info("Read %d Outlook events", outlookEvents.size());
@@ -113,7 +113,7 @@ public class SyncService {
                 Map<String, OutlookEvent> outlookById = outlookEvents.stream()
                         .collect(Collectors.toMap(OutlookEvent::id, e -> e, (a, b) -> a));
 
-                int created = 0, updated = 0, deleted = 0;
+                int created, updated, deleted;
 
                 List<OutlookEvent> toCreate = new ArrayList<>();
                 Map<String, OutlookEvent> toUpdate = new java.util.LinkedHashMap<>();
@@ -172,11 +172,11 @@ public class SyncService {
         });
     }
 
-    private boolean isChanged(OutlookEvent oe, GoogleEvent ge) {
+    boolean isChanged(OutlookEvent oe, GoogleEvent ge) {
         return !eq(oe.subject(), ge.summary())
-                || !eq(oe.location(), ge.location())
-                || !eq(oe.start(), ge.start())
-                || !eq(oe.end(), ge.end());
+                || !eqStr(oe.location(), ge.location())
+                || !eqInstant(oe.start(), ge.start())
+                || !eqInstant(oe.end(), ge.end());
     }
 
     private boolean eq(Object a, Object b) {
@@ -185,10 +185,30 @@ public class SyncService {
         return a.equals(b);
     }
 
-    /** Format ZonedDateTime as "Fri Apr 3, 09:00 (Europe/Warsaw)" — readable in user logs. */
+    /** Compare strings treating null and "" as equal (Google returns null for empty location). */
+    private boolean eqStr(String a, String b) {
+        String na = (a == null || a.isBlank()) ? null : a;
+        String nb = (b == null || b.isBlank()) ? null : b;
+        return java.util.Objects.equals(na, nb);
+    }
+
+    /** Compare ZonedDateTimes by instant (ignores zone ID differences like Europe/Warsaw vs +02:00). */
+    boolean eqInstant(java.time.ZonedDateTime a, java.time.ZonedDateTime b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.toInstant().equals(b.toInstant());
+    }
+
+    /** Format ZonedDateTime as "Fri Apr 3, 09:00" in system timezone — readable in user logs. */
     private String formatEventTime(java.time.ZonedDateTime zdt) {
         if (zdt == null) return "?";
-        return zdt.format(java.time.format.DateTimeFormatter.ofPattern("EEE MMM d, HH:mm"))
-                + " (" + zdt.getZone().getId() + ")";
+        java.time.ZonedDateTime local = zdt.withZoneSameInstant(java.time.ZoneId.systemDefault());
+        return local.format(java.time.format.DateTimeFormatter.ofPattern("EEE MMM d, HH:mm"));
+    }
+
+    /** Format ZonedDateTime as "Apr 3, 2026 09:00" — for range/summary messages. */
+    private String formatDate(java.time.ZonedDateTime zdt) {
+        if (zdt == null) return "?";
+        return zdt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm"));
     }
 }
