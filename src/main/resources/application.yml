@@ -6,8 +6,8 @@ spring:
       client:
         registration:
           google:
-            client-id: CLIENT_ID
-            client-secret: CLIENT_SECRET
+            client-id: GOOGLE_CLIENT_ID
+            client-secret: GOOGLE_CLIENT_SECRET
             authorization-grant-type: authorization_code
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             scope:
@@ -30,7 +30,7 @@ spring:
       mode: always
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: update
     show-sql: false
     defer-datasource-initialization: true
 logging:

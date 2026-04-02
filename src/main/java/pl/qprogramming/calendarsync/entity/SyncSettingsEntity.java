@@ -13,4 +13,5 @@ public class SyncSettingsEntity {
     private int daysPast = 7;
     private int daysFuture = 30;
     private boolean debugLogging = false;
+    private boolean syncColorLabels = true;
 }

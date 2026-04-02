@@ -19,10 +19,12 @@ public class LogsController implements LogsApiDelegate {
     private final LogService logService;
 
     @Override
-    public ResponseEntity<PagedSyncRuns> getLogs(Integer page, Integer size, String status) {
+    public ResponseEntity<PagedSyncRuns> getLogs(Integer page, Integer size, SyncRunStatus status) {
         int p = page != null ? page : 0;
         int s = size != null ? size : 20;
-        Page<SyncRunEntity> result = logService.getPagedRuns(p, s, status);
+        pl.qprogramming.calendarsync.entity.SyncRunStatus entityStatus =
+                status != null ? pl.qprogramming.calendarsync.entity.SyncRunStatus.valueOf(status.name()) : null;
+        Page<SyncRunEntity> result = logService.getPagedRuns(p, s, entityStatus);
 
         PagedSyncRuns paged = new PagedSyncRuns()
                 .content(result.getContent().stream().map(this::toRunDto).toList())
@@ -56,9 +58,7 @@ public class LogsController implements LogsApiDelegate {
                 .deleted(e.getDeleted())
                 .message(e.getMessage());
         if (e.getStatus() != null) {
-            try {
-                dto.status(SyncRun.StatusEnum.fromValue(e.getStatus()));
-            } catch (Exception ex) { /* ignore */ }
+            dto.status(SyncRunStatus.valueOf(e.getStatus().name()));
         }
         return dto;
     }

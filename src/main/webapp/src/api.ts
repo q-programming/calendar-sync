@@ -6,7 +6,6 @@
 export * from '../client-api';
 export { Configuration } from '../client-api/configuration';
 export {
-  AuthApi,
   GoogleApi,
   HealthApi,
   LogsApi,

@@ -9,5 +9,6 @@ public record OutlookEvent(
     String location,
     ZonedDateTime start,
     ZonedDateTime end,
-    boolean allDay
+    boolean allDay,
+    int colorIndex   // MS-OXOCAL PidLidAppointmentColor (0=none, 1-10=Outlook colors)
 ) {}

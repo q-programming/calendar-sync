@@ -12,7 +12,8 @@ public class SyncRunEntity {
     private String id;
     private OffsetDateTime startedAt;
     private OffsetDateTime finishedAt;
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private SyncRunStatus status;
     private Integer created = 0;
     private Integer updated = 0;
     private Integer deleted = 0;

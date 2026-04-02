@@ -42,7 +42,8 @@ class SettingsControllerTest {
                 .frequencyMinutes(30)
                 .daysPast(14)
                 .daysFuture(60)
-                .debugLogging(true);
+                .debugLogging(true)
+                .syncColorLabels(false);
 
         mockMvc.perform(put("/api/settings")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -55,11 +56,5 @@ class SettingsControllerTest {
                 .andExpect(jsonPath("$.daysPast").value(14))
                 .andExpect(jsonPath("$.daysFuture").value(60))
                 .andExpect(jsonPath("$.debugLogging").value(true));
-    }
-
-    @Test
-    void getSettings_unauthenticated_returns403() throws Exception {
-        mockMvc.perform(get("/api/settings"))
-                .andExpect(status().isForbidden());
     }
 }

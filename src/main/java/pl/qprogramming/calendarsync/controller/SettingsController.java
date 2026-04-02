@@ -27,7 +27,8 @@ public class SettingsController implements SettingsApiDelegate {
                 syncSettings.getFrequencyMinutes(),
                 syncSettings.getDaysPast(),
                 syncSettings.getDaysFuture(),
-                Boolean.TRUE.equals(syncSettings.getDebugLogging()));
+                Boolean.TRUE.equals(syncSettings.getDebugLogging()),
+                Boolean.TRUE.equals(syncSettings.getSyncColorLabels()));
         syncScheduler.reschedule();
         return ResponseEntity.noContent().build();
     }
@@ -37,6 +38,7 @@ public class SettingsController implements SettingsApiDelegate {
                 .frequencyMinutes(e.getFrequencyMinutes())
                 .daysPast(e.getDaysPast())
                 .daysFuture(e.getDaysFuture())
-                .debugLogging(e.isDebugLogging());
+                .debugLogging(e.isDebugLogging())
+                .syncColorLabels(e.isSyncColorLabels());
     }
 }

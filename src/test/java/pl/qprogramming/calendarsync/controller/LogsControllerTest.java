@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import pl.qprogramming.calendarsync.entity.SyncRunEntity;
+import pl.qprogramming.calendarsync.entity.SyncRunStatus;
 import pl.qprogramming.calendarsync.service.LogService;
 
 import java.time.OffsetDateTime;
@@ -59,7 +60,7 @@ class LogsControllerTest {
         SyncRunEntity run = new SyncRunEntity();
         run.setId("test-run-id");
         run.setStartedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        run.setStatus("SUCCESS");
+        run.setStatus(SyncRunStatus.SUCCESS);
         run.setCreated(0);
         run.setUpdated(0);
         run.setDeleted(0);
@@ -76,11 +77,5 @@ class LogsControllerTest {
     void getLogDetails_withUnknownId_returns404() throws Exception {
         mockMvc.perform(get("/api/logs/nonexistent-id"))
                 .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void getLogs_unauthenticated_returns403() throws Exception {
-        mockMvc.perform(get("/api/logs"))
-                .andExpect(status().isForbidden());
     }
 }

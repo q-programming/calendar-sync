@@ -9,8 +9,6 @@ servers:
 tags:
   - name: health
     description: Health operations
-  - name: auth
-    description: Authentication
   - name: profile
     description: User profile
   - name: outlook
@@ -38,16 +36,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
-
-  /auth/login:
-    get:
-      operationId: authLogin
-      tags: [auth]
-      summary: Start Google OAuth2 login
-      description: Redirects user to Google OAuth2 authorization flow
-      responses:
-        "302":
-          description: Redirect to Google OAuth
 
   /profile:
     get:
@@ -137,6 +125,24 @@ paths:
         "204":
           description: Updated
 
+  /profile/google/disconnect:
+    delete:
+      operationId: disconnectGoogle
+      tags: [google]
+      summary: Disconnect Google account and clear destination calendar
+      responses:
+        "204":
+          description: Disconnected
+
+  /profile/outlook/disconnect:
+    delete:
+      operationId: disconnectOutlook
+      tags: [outlook]
+      summary: Clear Outlook profile path and source calendar selection
+      responses:
+        "204":
+          description: Disconnected
+
   /settings:
     get:
       operationId: getSettings
@@ -200,8 +206,7 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            enum: [SUCCESS, FAILED]
+            $ref: "#/components/schemas/SyncRunStatus"
       responses:
         "200":
           description: Paged sync logs
@@ -231,6 +236,10 @@ paths:
 
 components:
   schemas:
+    SyncRunStatus:
+      type: string
+      enum: [RUNNING, SUCCESS, FAILED]
+
     HealthStatus:
       type: object
       properties:
@@ -256,9 +265,12 @@ components:
           type: string
         googleCalendarName:
           type: string
+        syncRunning:
+          type: boolean
       required:
         - googleConnected
         - outlookConnected
+        - syncRunning
 
     OutlookConnection:
       type: object
@@ -305,11 +317,15 @@ components:
           minimum: 0
         debugLogging:
           type: boolean
+        syncColorLabels:
+          type: boolean
+          description: "Mirror Outlook category colors to Google Calendar event colors"
       required:
         - frequencyMinutes
         - daysPast
         - daysFuture
         - debugLogging
+        - syncColorLabels
 
     SyncRun:
       type: object
@@ -323,8 +339,7 @@ components:
           type: string
           format: date-time
         status:
-          type: string
-          enum: [SUCCESS, FAILED]
+          $ref: "#/components/schemas/SyncRunStatus"
         created:
           type: integer
         updated:

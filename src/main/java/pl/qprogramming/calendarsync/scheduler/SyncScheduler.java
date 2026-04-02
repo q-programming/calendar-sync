@@ -5,13 +5,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
+import pl.qprogramming.calendarsync.entity.SyncLogEntryEntity;
+import pl.qprogramming.calendarsync.entity.SyncRunEntity;
+import pl.qprogramming.calendarsync.entity.SyncRunStatus;
 import pl.qprogramming.calendarsync.entity.SyncSettingsEntity;
 import pl.qprogramming.calendarsync.repository.ProfileRepository;
 import pl.qprogramming.calendarsync.repository.SyncSettingsRepository;
+import pl.qprogramming.calendarsync.service.LogService;
 import pl.qprogramming.calendarsync.service.SyncService;
 
-import java.security.Principal;
 import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 
 @Slf4j
@@ -23,11 +29,14 @@ public class SyncScheduler {
     private final SyncSettingsRepository settingsRepository;
     private final SyncService syncService;
     private final ProfileRepository profileRepository;
+    private final LogService logService;
 
     private ScheduledFuture<?> currentTask;
 
     @PostConstruct
     public void init() {
+        logService.removeOldEntries();
+        logService.failStaleSyncRuns();
         reschedule();
     }
 
@@ -51,13 +60,11 @@ public class SyncScheduler {
                     log.debug("Skipping scheduled sync: profile not fully configured");
                     return;
                 }
-                String principalName = profile.getGooglePrincipalName();
-                if (principalName == null || principalName.isBlank()) {
+                if (profile.getGooglePrincipalName() == null || profile.getGooglePrincipalName().isBlank()) {
                     log.debug("Skipping scheduled sync: no Google principal stored yet");
                     return;
                 }
-                Principal principal = () -> principalName;
-                syncService.runSync(principal);
+                syncService.runSync();
             } catch (Exception e) {
                 log.error("Scheduled sync failed", e);
             }

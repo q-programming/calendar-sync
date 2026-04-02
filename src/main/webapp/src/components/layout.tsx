@@ -69,7 +69,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 variant="subtitle2"
                 sx={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, letterSpacing: "-0.02em" }}
               >
-                SYNC_COCKPIT
+                CALENDAR_SYNC
               </Typography>
             )}
             <IconButton onClick={toggle} size="small" data-testid="button-toggle-sidebar">

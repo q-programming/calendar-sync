@@ -1,21 +1,10 @@
 import axios from 'axios';
 import { Configuration } from '@api';
 
-/**
- * Base path matches the Spring Boot context path + API prefix.
- * The generated client appends paths like /api/profile, so basePath here
- * is the context-path prefix only.
- */
-export const BASE_PATH = '/calendarsync';
+export const axiosInstance = axios.create({ withCredentials: true });
 
-export const axiosInstance = axios.create({
-  baseURL: BASE_PATH,
-  withCredentials: true,
-});
-
-/**
- * Shared Configuration for all generated API classes.
- * basePath is set to empty string because axiosInstance already has the baseURL,
- * and the generated paths start with /api/...
- */
-export const apiConfig = new Configuration({ basePath: '' });
+// basePath becomes the prefix for every generated API call:
+// e.g. /calendarsync + /api/settings → /calendarsync/api/settings
+// Vite dev proxy forwards /calendarsync/api/* → http://localhost:8080
+// Spring Boot context-path is /calendarsync, so it sees /api/settings
+export const apiConfig = new Configuration({ basePath: '/calendarsync/api' });

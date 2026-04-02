@@ -56,6 +56,12 @@
         <packaging.type>jar</packaging.type> <!-- Default packaging type -->
     </properties>
     <dependencies>
+        <!-- Outlook PST/OST file reading (WSL-compatible, no COM/Windows dependency) -->
+        <dependency>
+            <groupId>com.pff</groupId>
+            <artifactId>java-libpst</artifactId>
+            <version>0.9.3</version>
+        </dependency>
         <!-- Spring Boot Starter Dependencies -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
