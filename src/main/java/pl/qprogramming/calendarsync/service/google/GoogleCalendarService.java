@@ -1,4 +1,4 @@
-package pl.qprogramming.calendarsync.adapter;
+package pl.qprogramming.calendarsync.service.google;
 
 import com.google.api.client.googleapis.batch.BatchCallback;
 import com.google.api.client.googleapis.batch.BatchRequest;
@@ -18,9 +18,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.stereotype.Component;
-import pl.qprogramming.calendarsync.port.*;
+import org.springframework.stereotype.Service;
+import pl.qprogramming.calendarsync.model.CalendarRef;
+import pl.qprogramming.calendarsync.model.DateRange;
 import pl.qprogramming.calendarsync.service.ProfileService;
+import pl.qprogramming.calendarsync.service.outlook.OutlookEvent;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -30,10 +32,25 @@ import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Manages Google Calendar events for the one-way Outlook → Google sync.
+ *
+ * <p>This service is intentionally opinionated: it tags every managed Google event using
+ * private extended properties, reads back only those tagged events, and performs
+ * create/update/delete in Google batch requests.
+ *
+ * <p>Why this approach:
+ * <ul>
+ *   <li>Keep sync idempotent by storing the Outlook event id on each Google event.</li>
+ *   <li>Avoid touching unrelated user events by filtering on a dedicated source marker.</li>
+ *   <li>Reduce API round-trips and latency by chunking writes into Google batch calls.</li>
+ *   <li>Work without an active web session by reconstructing credentials from persisted OAuth data.</li>
+ * </ul>
+ */
 @Slf4j
-@Component
+@Service
 @RequiredArgsConstructor
-public class GoogleCalendarAdapter implements GoogleCalendarPort {
+public class GoogleCalendarService {
 
     private static final String SYNC_SOURCE_KEY = "source";
     private static final String SYNC_SOURCE_VALUE = "outlook-sync";
@@ -70,7 +87,12 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
     private final OAuth2AuthorizedClientService authorizedClientService;
     private final ProfileService profileService;
 
-    @Override
+    /**
+     * Lists calendars visible to the connected Google account.
+     *
+     * <p>The result is mapped to internal {@link CalendarRef} DTOs so the service layer
+     * can stay independent from Google SDK models.
+     */
     public List<CalendarRef> listCalendars() {
         try {
             return buildClient().calendarList().list().execute().getItems().stream()
@@ -82,7 +104,13 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
         }
     }
 
-    @Override
+    /**
+     * Reads events from a Google calendar in the requested time window.
+     *
+     * <p>Even though Google returns all events in the range, only events carrying the
+     * private sync marker are kept. This guarantees we compare/update only events that
+     * were previously created by this sync process.
+     */
     public List<GoogleEvent> readEvents(String calendarId, DateRange range) {
         try {
             return buildClient().events().list(calendarId)
@@ -106,8 +134,11 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
     /**
      * Build client once, convert all events, fire a single BatchRequest per chunk.
      * Google limits batch requests to 50 operations each, so we chunk automatically.
+     *
+     * <p>Per-operation failures are counted and logged via callbacks instead of aborting
+     * the whole sync. This allows partial progress while still surfacing failures in the
+     * returned {@link BatchWriteResult}.
      */
-    @Override
     public BatchWriteResult batchWrite(String calendarId,
                                        List<OutlookEvent> toCreate,
                                        Map<String, OutlookEvent> toUpdate,
@@ -199,8 +230,12 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
 
     /**
      * Resolves the stored principal name from DB and loads the authorized client.
-     * This means the adapter works without an active HTTP session — survives restarts
+     * This means the service works without an active HTTP session — survives restarts
      * as long as the refresh token is in the JDBC store.
+     *
+     * <p>Why build credentials this way: Spring stores OAuth tokens in
+     * {@link OAuth2AuthorizedClientService}, while Google SDK expects
+     * {@link GoogleCredentials}. This method bridges those models.
      */
     private Calendar buildClient() throws GeneralSecurityException, IOException {
         String principalName = profileService.getOrCreate().getGooglePrincipalName();
@@ -230,6 +265,13 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
                 .build();
     }
 
+    /**
+     * Builds an HTTP transport for Google API calls.
+     *
+     * <p>The first attempt uses a trust-all transport because some deployments run behind
+     * intercepting proxies or custom TLS chains. If that fails, we fallback to the standard
+     * trusted transport. If both fail, the service cannot communicate with Google.
+     */
     private NetHttpTransport trustAllTransport() {
         try {
             return new NetHttpTransport.Builder().doNotValidateCertificate().build();
@@ -242,6 +284,13 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
         }
     }
 
+    /**
+     * Converts an internal Outlook event into a Google API event payload.
+     *
+     * <p>In addition to common fields, the service stores two private metadata keys:
+     * source marker and original Outlook id. These keys are the backbone of later
+     * reconciliation (read, compare, update, delete).
+     */
     private Event toGoogleApiEvent(OutlookEvent src, boolean syncColorLabels) {
         Event event = new Event();
         event.setSummary(src.subject());
@@ -273,6 +322,12 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
         return event;
     }
 
+    /**
+     * Converts a Google API event into the internal sync DTO.
+     *
+     * <p>Outlook id is read from private extended properties so we can match Google
+     * events back to their Outlook counterparts deterministically.
+     */
     private GoogleEvent toGoogleEvent(Event e) {
         String outlookId = null;
         if (e.getExtendedProperties() != null && e.getExtendedProperties().getPrivate() != null) {
@@ -283,6 +338,14 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
                 e.getStart() != null && e.getStart().getDate() != null);
     }
 
+    /**
+     * Parses Google {@link EventDateTime} to {@link ZonedDateTime}.
+     *
+     * <p>Google uses two shapes for event times:
+     * dateTime for timed events and date for all-day events. We normalize both to
+     * {@link ZonedDateTime}. All-day values are anchored at UTC midnight to keep
+     * comparisons stable in the sync layer.
+     */
     private ZonedDateTime parseDateTime(EventDateTime edt) {
         if (edt == null) return null;
         if (edt.getDateTime() != null) {
@@ -296,3 +359,4 @@ public class GoogleCalendarAdapter implements GoogleCalendarPort {
         return null;
     }
 }
+

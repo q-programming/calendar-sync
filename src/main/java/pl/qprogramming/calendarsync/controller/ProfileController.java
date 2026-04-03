@@ -7,10 +7,10 @@ import org.springframework.stereotype.Component;
 import pl.qprogramming.calendarsync.api.ProfileApiDelegate;
 import pl.qprogramming.calendarsync.dto.*;
 import pl.qprogramming.calendarsync.entity.ProfileEntity;
-import pl.qprogramming.calendarsync.port.GoogleCalendarPort;
-import pl.qprogramming.calendarsync.port.OutlookCalendarPort;
 import pl.qprogramming.calendarsync.service.ProfileService;
 import pl.qprogramming.calendarsync.service.SyncService;
+import pl.qprogramming.calendarsync.service.google.GoogleCalendarService;
+import pl.qprogramming.calendarsync.service.outlook.OutlookCalendarService;
 
 import java.util.List;
 
@@ -20,8 +20,8 @@ import java.util.List;
 public class ProfileController implements ProfileApiDelegate {
 
     private final ProfileService profileService;
-    private final OutlookCalendarPort outlookPort;
-    private final GoogleCalendarPort googlePort;
+    private final OutlookCalendarService outlookService;
+    private final GoogleCalendarService googleService;
     private final SyncService syncService;
 
     @Override
@@ -58,7 +58,7 @@ public class ProfileController implements ProfileApiDelegate {
             return ResponseEntity.badRequest().build();
         }
         try {
-            List<CalendarRef> refs = outlookPort.listCalendars(profile.getOutlookProfilePath()).stream()
+            List<CalendarRef> refs = outlookService.listCalendars(profile.getOutlookProfilePath()).stream()
                     .map(r -> new CalendarRef().id(r.id()).name(r.name())
                             .timeZone(r.timeZone()).color(r.color()))
                     .toList();
@@ -74,9 +74,9 @@ public class ProfileController implements ProfileApiDelegate {
         ProfileEntity profile = profileService.getOrCreate();
         String name = calId;
         if (profile.getOutlookProfilePath() != null) {
-            name = outlookPort.listCalendars(profile.getOutlookProfilePath()).stream()
+            name = outlookService.listCalendars(profile.getOutlookProfilePath()).stream()
                     .filter(c -> c.id().equals(calId)).findFirst()
-                    .map(pl.qprogramming.calendarsync.port.CalendarRef::name)
+                    .map(pl.qprogramming.calendarsync.model.CalendarRef::name)
                     .orElse(calId);
         }
         profileService.setOutlookCalendar(calId, name);
@@ -89,7 +89,7 @@ public class ProfileController implements ProfileApiDelegate {
             return ResponseEntity.status(401).build();
         }
         try {
-            List<CalendarRef> refs = googlePort.listCalendars().stream()
+            List<CalendarRef> refs = googleService.listCalendars().stream()
                     .map(r -> new CalendarRef().id(r.id()).name(r.name())
                             .timeZone(r.timeZone()).color(r.color()))
                     .toList();
@@ -103,9 +103,9 @@ public class ProfileController implements ProfileApiDelegate {
     @Override
     public ResponseEntity<Void> setGoogleCalendar(CalendarSelection calendarSelection) {
         String calId = calendarSelection.getCalendarId();
-        String name = googlePort.listCalendars().stream()
+        String name = googleService.listCalendars().stream()
                 .filter(c -> c.id().equals(calId)).findFirst()
-                .map(pl.qprogramming.calendarsync.port.CalendarRef::name)
+                .map(pl.qprogramming.calendarsync.model.CalendarRef::name)
                 .orElse(calId);
         profileService.setGoogleCalendar(calId, name);
         return ResponseEntity.noContent().build();

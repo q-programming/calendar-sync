@@ -1,11 +1,14 @@
-package pl.qprogramming.calendarsync.adapter;
+package pl.qprogramming.calendarsync.service.outlook;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import pl.qprogramming.calendarsync.port.DateRange;
-import pl.qprogramming.calendarsync.port.OutlookEvent;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import pl.qprogramming.calendarsync.model.DateRange;
+import pl.qprogramming.calendarsync.service.LogService;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -17,7 +20,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for OutlookCalendarAdapter recurrence exception handling.
+ * Tests for OutlookCalendarService recurrence exception handling.
  *
  * Covers:
  *  - localMinToZdt(): local-timezone minutes-from-1601 → ZonedDateTime
@@ -28,7 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *    - Empty ExceptionCount (blob too short)
  *    - Multiple exceptions, some in range, some not
  */
-class OutlookCalendarAdapterExceptionTest {
+@ExtendWith(MockitoExtension.class)
+class OutlookCalendarServiceExceptionTest {
 
     // MS-OXOCAL: minutes from 1601-01-01T00:00Z to Unix epoch
     static final long MIN_1601 = 194074560L;
@@ -38,7 +42,7 @@ class OutlookCalendarAdapterExceptionTest {
         return ldt.toEpochSecond(ZoneOffset.UTC) / 60 + MIN_1601;
     }
 
-    // Convenience: convert LocalDateTime at midnight to "original start date" minutes (UTC midnight)
+    // Convenience: convert LocalDate at midnight to "original start date" minutes (UTC midnight)
     static long toOrigMin(LocalDate date) {
         return date.atStartOfDay().toEpochSecond(ZoneOffset.UTC) / 60 + MIN_1601;
     }
@@ -46,12 +50,8 @@ class OutlookCalendarAdapterExceptionTest {
     static final ZoneId NEW_YORK = ZoneId.of("America/New_York");
     static final ZoneId WARSAW   = ZoneId.of("Europe/Warsaw");
 
-    OutlookCalendarAdapter adapter;
-
-    @BeforeEach
-    void setUp() {
-        adapter = new OutlookCalendarAdapter();
-    }
+    @Mock LogService logService;
+    @InjectMocks OutlookCalendarService service;
 
     // ── localMinToZdt ─────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ class OutlookCalendarAdapterExceptionTest {
         @DisplayName("09:00 EDT on Apr 3 2026 → correct instant (UTC 13:00)")
         void nineAmEdtApril3() {
             long min = toLocalMin(LocalDateTime.of(2026, 4, 3, 9, 0));
-            ZonedDateTime zdt = adapter.localMinToZdt(min, NEW_YORK);
+            ZonedDateTime zdt = service.localMinToZdt(min, NEW_YORK);
 
             assertThat(zdt.getHour()).isEqualTo(9);
             assertThat(zdt.getMinute()).isEqualTo(0);
@@ -74,7 +74,7 @@ class OutlookCalendarAdapterExceptionTest {
         @DisplayName("09:00 Warsaw (CEST=+2) on Apr 3 2026 → UTC 07:00")
         void nineAmWarsawApril3() {
             long min = toLocalMin(LocalDateTime.of(2026, 4, 3, 9, 0));
-            ZonedDateTime zdt = adapter.localMinToZdt(min, WARSAW);
+            ZonedDateTime zdt = service.localMinToZdt(min, WARSAW);
 
             assertThat(zdt.getHour()).isEqualTo(9);
             assertThat(zdt.toInstant()).isEqualTo(Instant.parse("2026-04-03T07:00:00Z"));
@@ -84,8 +84,8 @@ class OutlookCalendarAdapterExceptionTest {
         @DisplayName("same wall-clock, different timezone → different UTC instants")
         void sameWallClockDifferentZone() {
             long min = toLocalMin(LocalDateTime.of(2026, 4, 3, 9, 0));
-            ZonedDateTime inNY     = adapter.localMinToZdt(min, NEW_YORK); // UTC-4 → 13:00Z
-            ZonedDateTime inWarsaw = adapter.localMinToZdt(min, WARSAW);   // UTC+2 → 07:00Z
+            ZonedDateTime inNY     = service.localMinToZdt(min, NEW_YORK); // UTC-4 → 13:00Z
+            ZonedDateTime inWarsaw = service.localMinToZdt(min, WARSAW);   // UTC+2 → 07:00Z
 
             assertThat(inNY.toInstant()).isNotEqualTo(inWarsaw.toInstant());
         }
@@ -136,7 +136,7 @@ class OutlookCalendarAdapterExceptionTest {
             writeExceptionInfo(b, startMin, endMin, origMin, 0);
 
             List<OutlookEvent> result = new ArrayList<>();
-            adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "base123", "Standup", "body", "Zoom", false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -160,7 +160,7 @@ class OutlookCalendarAdapterExceptionTest {
             writeExceptionInfo(b, startMin, endMin, origMin, 0);
 
             List<OutlookEvent> result = new ArrayList<>();
-            adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "base123", "Standup", "body", null, false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -187,7 +187,7 @@ class OutlookCalendarAdapterExceptionTest {
             b.put(subjBytes);
 
             List<OutlookEvent> result = new ArrayList<>();
-            adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "base123", "Original Subject", "body", null, false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -215,7 +215,7 @@ class OutlookCalendarAdapterExceptionTest {
             b.put(locBytes);
 
             List<OutlookEvent> result = new ArrayList<>();
-            adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "base123", "Meeting", "body", "Room A", false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -229,7 +229,7 @@ class OutlookCalendarAdapterExceptionTest {
             ByteBuffer b = newArBlob(0);
 
             List<OutlookEvent> result = new ArrayList<>();
-            adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "base", "Sub", "body", null, false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -241,7 +241,7 @@ class OutlookCalendarAdapterExceptionTest {
         void blobTooShort() {
             byte[] tiny = new byte[10];
             List<OutlookEvent> result = new ArrayList<>();
-            int count = adapter.readExceptionOccurrences(tiny, 0, NEW_YORK,
+            int count = service.readExceptionOccurrences(tiny, 0, NEW_YORK,
                     "base", "Sub", "body", null, false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -265,7 +265,7 @@ class OutlookCalendarAdapterExceptionTest {
             writeExceptionInfo(b, start2, end2, orig2, 0);
 
             List<OutlookEvent> result = new ArrayList<>();
-            int count = adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            int count = service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "base", "Sub", "body", null, false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -285,7 +285,7 @@ class OutlookCalendarAdapterExceptionTest {
             writeExceptionInfo(b, startMin, endMin, origMin, 0);
 
             List<OutlookEvent> result = new ArrayList<>();
-            adapter.readExceptionOccurrences(b.array(), 0, NEW_YORK,
+            service.readExceptionOccurrences(b.array(), 0, NEW_YORK,
                     "node999", "Sub", "body", null, false, 0,
                     rangeAround(LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 16)), result);
 
@@ -293,3 +293,4 @@ class OutlookCalendarAdapterExceptionTest {
         }
     }
 }
+

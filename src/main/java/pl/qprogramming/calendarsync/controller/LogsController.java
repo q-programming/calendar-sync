@@ -64,14 +64,9 @@ public class LogsController implements LogsApiDelegate {
     }
 
     private LogEntry toEntryDto(SyncLogEntryEntity e) {
-        LogEntry dto = new LogEntry()
+        return new LogEntry()
                 .timestamp(e.getTimestamp())
-                .message(e.getMessage());
-        if (e.getLevel() != null) {
-            try {
-                dto.level(LogEntry.LevelEnum.fromValue(e.getLevel()));
-            } catch (Exception ex) { /* ignore */ }
-        }
-        return dto;
+                .message(e.getMessage())
+                .level(e.getLevel());
     }
 }

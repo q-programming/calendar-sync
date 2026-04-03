@@ -2,6 +2,7 @@ package pl.qprogramming.calendarsync.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import pl.qprogramming.calendarsync.dto.LogLevel;
 import java.time.OffsetDateTime;
 
 @Entity
@@ -14,7 +15,8 @@ public class SyncLogEntryEntity {
     private String runId;
     @Column(name = "entry_timestamp")
     private OffsetDateTime timestamp;
-    private String level;
+    @Enumerated(EnumType.STRING)
+    private LogLevel level;
     @Column(length = 4000)
     private String message;
 }

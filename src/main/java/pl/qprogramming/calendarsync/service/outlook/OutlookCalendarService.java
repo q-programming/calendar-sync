@@ -1,9 +1,12 @@
-package pl.qprogramming.calendarsync.adapter;
+package pl.qprogramming.calendarsync.service.outlook;
 
 import com.pff.*;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
-import pl.qprogramming.calendarsync.port.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import pl.qprogramming.calendarsync.model.CalendarRef;
+import pl.qprogramming.calendarsync.model.DateRange;
+import pl.qprogramming.calendarsync.service.LogService;
 
 import java.io.File;
 import java.io.IOException;
@@ -13,14 +16,39 @@ import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;
 
+/**
+ * Reads Outlook appointments directly from a PST/OST file using libpst ({@code com.pff.*}).
+ *
+ * <p>Discovers calendar folders, converts appointment items into internal {@link OutlookEvent}
+ * DTOs, and expands recurring events from MS-OXOCAL recurrence blobs so date-range filtering
+ * is accurate before events reach {@link pl.qprogramming.calendarsync.service.SyncService}.
+ *
+ * <p>Important design choices:
+ * <ul>
+ *   <li>Corrupt nodes are skipped so one bad item does not stop the entire folder scan.</li>
+ *   <li>Recurring events are expanded manually from MS-OXOCAL recurrence blobs so date-range
+ *       filtering is accurate before events reach the service layer.</li>
+ *   <li>Two timezone resolvers are used on purpose: fixed-offset for single-instance timestamps
+ *       and DST-aware IANA zones for recurrence expansion where wall-clock preservation matters.</li>
+ * </ul>
+ */
 @Slf4j
-@Component
-public class OutlookCalendarAdapter implements OutlookCalendarPort {
+@Service
+public class OutlookCalendarService {
 
     // MS-OXOCAL: minutes from 1601-01-01T00:00Z to Unix epoch 1970-01-01T00:00Z
     private static final long MINUTES_1601_TO_EPOCH = 194074560L;
 
-    @Override
+    @Autowired
+    private LogService logService;
+
+    /**
+     * Discovers available calendar folders inside a PST/OST profile file.
+     *
+     * <p>The traversal matches Outlook calendar folders by container class or common
+     * display name. Folder descriptor ids are exposed as stable calendar identifiers
+     * for later reads.
+     */
     public List<CalendarRef> listCalendars(String profilePath) {
         validateProfilePath(profilePath);
         List<CalendarRef> result = new ArrayList<>();
@@ -35,7 +63,13 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
         return result;
     }
 
-    @Override
+    /**
+     * Reads appointment events from a selected Outlook folder in the requested range.
+     *
+     * <p>Regular events are range-filtered directly. Recurring events are expanded into
+     * concrete occurrences first, then overlap-checked. The method returns normalized
+     * internal DTOs and never leaks libpst model objects to higher layers.
+     */
     public List<OutlookEvent> readEvents(String profilePath, String calendarId, DateRange range) {
         validateProfilePath(profilePath);
         List<OutlookEvent> events = new ArrayList<>();
@@ -96,6 +130,13 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
 
     // ── Appointment reading ────────────────────────────────────────────────────────
 
+    /**
+     * Streams appointment items from a folder, tolerating corrupt children.
+     *
+     * <p>The folder cursor can fail on malformed nodes. When that happens, the service
+     * advances the cursor manually and keeps scanning. This best-effort strategy is
+     * preferable for sync jobs where partial data is better than a full stop.
+     */
     private void readAppointmentsFromFolder(PSTFolder folder, DateRange range, List<OutlookEvent> result) {
         if (folder.getContentCount() <= 0) return;
         int total = folder.getContentCount();
@@ -160,6 +201,12 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                 count, total, folder.getDisplayName(), result.size(), skipped);
     }
 
+    /**
+     * Fast overlap check used before costly conversion logic.
+     *
+     * <p>Events are included when any portion intersects the requested window.
+     * Null end time is treated as an instant event at start time.
+     */
     private boolean quickInRange(Date start, Date end, DateRange range) {
         if (start == null) return false;
         Instant s = start.toInstant();
@@ -171,15 +218,19 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
 
     /**
      * MS-OXOCAL RecurrencePattern blob layout:
-     *   0  ReaderVersion (2), WriterVersion (2)
-     *   4  RecurFrequency (2), PatternType (2)
-     *   8  CalendarType (2)
-     *  10  FirstDateTime (4), Period (4), SlidingFlag (4)
-     *  22  PatternTypeSpecific (variable)
-     *      EndType (4), OccurrenceCount (4), FirstDOW (4)
-     *      DeletedInstanceCount (4), DeletedInstanceDates[] (4 each)
-     *      ModifiedInstanceCount (4), ModifiedInstanceDates[] (4 each)
-     *      StartDate (4), EndDate (4)  ← always last 8 bytes
+     * 0  ReaderVersion (2), WriterVersion (2)
+     * 4  RecurFrequency (2), PatternType (2)
+     * 8  CalendarType (2)
+     * 10  FirstDateTime (4), Period (4), SlidingFlag (4)
+     * 22  PatternTypeSpecific (variable)
+     * EndType (4), OccurrenceCount (4), FirstDOW (4)
+     * DeletedInstanceCount (4), DeletedInstanceDates[] (4 each)
+     * ModifiedInstanceCount (4), ModifiedInstanceDates[] (4 each)
+     * StartDate (4), EndDate (4)  ← always last 8 bytes
+     *
+     * <p>Why parse this manually: libpst does not return already-expanded occurrences
+     * for every recurrence shape. Parsing the blob lets us respect deleted and moved
+     * instances and perform reliable range filtering.
      */
     private void expandRecurring(PSTAppointment appt, DateRange range, List<OutlookEvent> result) {
         try {
@@ -190,9 +241,9 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             }
 
             ByteBuffer buf = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN);
-            short recurFreq  = buf.getShort(4);
+            short recurFreq = buf.getShort(4);
             short patternType = buf.getShort(6);
-            int   period     = buf.getInt(14);  // correct offset: 10(FirstDateTime) + 4 = 14
+            int period = buf.getInt(14);  // correct offset: 10(FirstDateTime) + 4 = 14
 
             // PatternTypeSpecific length depends on patternType
             int patSpecLen = switch (patternType) {
@@ -204,7 +255,7 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                 case 0x000B -> 4;   // HjMonth
                 case 0x000C -> 8;   // HjMonthNth
                 case 0x000D -> 4;   // HjMonthEnd
-                default     -> 4;
+                default -> 4;
             };
 
             // For weekly recurrences, read the day-of-week bitmask (bits 0-6 = Sun-Sat)
@@ -220,11 +271,11 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
 
             // pos: EndType(4), OccurrenceCount(4), FirstDOW(4), DeletedInstanceCount(4)
             int deletedCount = buf.getInt(pos + 12);
-            int deletedBase  = pos + 16;
+            int deletedBase = pos + 16;
 
             // Build set of deleted occurrence dates (minutes from 1601-01-01 midnight UTC)
             Set<Long> deletedMinutes = new HashSet<>();
-            for (int i = 0; i < deletedCount && deletedBase + (long)i * 4 + 4 <= blob.length; i++) {
+            for (int i = 0; i < deletedCount && deletedBase + (long) i * 4 + 4 <= blob.length; i++) {
                 deletedMinutes.add(buf.getInt(deletedBase + i * 4) & 0xFFFFFFFFL);
             }
 
@@ -237,7 +288,7 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             int modifiedCount = buf.getInt(afterDeleted);
             // StartDate and EndDate immediately follow ModifiedInstanceDates
             int startDateOffset = afterDeleted + 4 + modifiedCount * 4;
-            int endDateOffset   = startDateOffset + 4;
+            int endDateOffset = startDateOffset + 4;
             if (endDateOffset + 4 > blob.length) {
                 fallbackRecurring(appt, range, result);
                 return;
@@ -256,35 +307,33 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             // (e.g. 09:00) is preserved across DST transitions when adding weeks/days.
             // resolveZone() uses SimpleTimeZone (fixed offset) for correct single-event
             // UTC math, but here we need the named zone.
-            ZoneId zone         = resolveIanaZone(appt.getStartTimeZone());
+            ZoneId zone = resolveIanaZone(appt.getStartTimeZone());
             ZonedDateTime baseStart = baseDate.toInstant().atZone(zone);
-            ZonedDateTime baseEnd   = appt.getEndTime() != null
+            ZonedDateTime baseEnd = appt.getEndTime() != null
                     ? appt.getEndTime().toInstant().atZone(zone)
                     : baseStart.plusHours(1);
             Duration duration = Duration.between(baseStart, baseEnd);
 
             // Quick overlap check
             if (baseStart.isAfter(range.to()) || recurrenceEnd.isBefore(range.from())) {
-                log.debug("Recurring '{}' outside range (base={}, recEnd={})", appt.getSubject(), baseStart, recurrenceEnd);
+                logDebug("Recurring '%s' outside range (base=%s, recEnd=%s)", appt.getSubject(), baseStart, recurrenceEnd);
                 return;
             }
 
-            String subject  = appt.getSubject();
-            String body     = appt.getBody();
+            String subject = appt.getSubject();
+            String body = appt.getBody();
             String location = appt.getLocation();
-            boolean allDay  = appt.getSubType();
-            String baseId   = String.valueOf(appt.getDescriptorNodeId());
-            int colorIndex  = appt.getColor();
+            boolean allDay = appt.getSubType();
+            String baseId = String.valueOf(appt.getDescriptorNodeId());
+            int colorIndex = appt.getColor();
 
             // Log full recurrence meta so we can diagnose unexpected inclusions
-            log.debug("Recurring '{}': freq=0x{} period={} patternType=0x{} weekDayMask=0x{} base={} recEnd={} deletedInstances={} pattern={}",
+            logDebug("Recurring '%s': freq=0x%s period=%s patternType=0x%s weekDayMask=0x%s deletedInstances=%s pattern=%s",
                     subject,
                     Integer.toHexString(recurFreq & 0xFFFF),
                     period,
                     Integer.toHexString(patternType & 0xFFFF),
                     Integer.toHexString(weekDayMask),
-                    baseStart,
-                    recurrenceEnd,
                     deletedCount,
                     appt.getRecurrencePattern());
 
@@ -302,7 +351,6 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                         .withSecond(baseStart.getSecond());
                 // MS-OXOCAL day bits: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
                 // Java DayOfWeek: MONDAY=1..SUNDAY=7
-                int[] msBitByJavaDow = {0, 1, 2, 3, 4, 5, 6, 0}; // index by Java dow 1-7
                 int[] javaDowByMsBit = {7, 1, 2, 3, 4, 5, 6};     // bit 0=Sun→7, bit1=Mon→1…
                 while (!weekStart.isAfter(cutoff) && generated < safetyLimit) {
                     // Emit each active day of this week
@@ -316,12 +364,12 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                                 .toLocalDate().atStartOfDay(ZoneOffset.UTC);
                         long occMinutes = midnight.toEpochSecond() / 60 + MINUTES_1601_TO_EPOCH;
                         if (deletedMinutes.contains(occMinutes)) {
-                            log.debug("  Skipping deleted occurrence of '{}' at {} (occMinutes={})", subject, occStart, occMinutes);
+                            logDebug("  Skipping deleted occurrence of '%s' at %s", subject, occStart);
                             continue;
                         }
                         ZonedDateTime occEnd = occStart.plus(duration);
                         if (!occStart.isAfter(range.to()) && !occEnd.isBefore(range.from())) {
-                            log.debug("  Including occurrence of '{}' at {} (occMinutes={})", subject, occStart, occMinutes);
+                            logDebug("  Including occurrence of '%s' at %s", subject, occStart);
                             result.add(new OutlookEvent(
                                     baseId + "_" + occStart.toEpochSecond(),
                                     subject, body, location, occStart, occEnd, allDay, colorIndex));
@@ -338,11 +386,11 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                             .toLocalDate().atStartOfDay(ZoneOffset.UTC);
                     long occMinutes = midnight.toEpochSecond() / 60 + MINUTES_1601_TO_EPOCH;
                     if (deletedMinutes.contains(occMinutes)) {
-                        log.debug("  Skipping deleted occurrence of '{}' at {} (occMinutes={})", subject, occStart, occMinutes);
+                        logDebug("  Skipping deleted occurrence of '%s' at %s", subject, occStart);
                     } else {
                         ZonedDateTime occEnd = occStart.plus(duration);
                         if (!occStart.isAfter(range.to()) && !occEnd.isBefore(range.from())) {
-                            log.debug("  Including occurrence of '{}' at {} (occMinutes={})", subject, occStart, occMinutes);
+                            logDebug("  Including occurrence of '%s' at %s", subject, occStart);
                             result.add(new OutlookEvent(
                                     baseId + "_" + occStart.toEpochSecond(),
                                     subject, body, location, occStart, occEnd, allDay, colorIndex));
@@ -354,9 +402,9 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                 }
             }
             if (generated > 0) {
-                log.debug("Expanded recurring '{}' → {} occurrences in range", subject, generated);
+                logDebug("Expanded recurring '%s' → %s occurrences in range", subject, generated);
             } else {
-                log.debug("Recurring '{}' had 0 occurrences in range after deleted-instance filtering", subject);
+                logDebug("Recurring '%s' had 0 occurrences in range", subject);
             }
 
             // ── Modified (moved) occurrences ────────────────────────────────────────────
@@ -370,7 +418,13 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
         }
     }
 
-    /** Last resort: include only if the base event date overlaps the range. */
+    /**
+     * Last resort for malformed recurrence blobs.
+     *
+     * <p>If recurrence metadata cannot be parsed safely, we keep only the base
+     * appointment when it overlaps the range. This avoids dropping potentially
+     * relevant events while signaling degraded recurrence precision.
+     */
     private void fallbackRecurring(PSTAppointment appt, DateRange range, List<OutlookEvent> result) {
         try {
             if (!quickInRange(appt.getStartTime(), appt.getEndTime(), range)) return;
@@ -385,32 +439,36 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
      * Parse the AppointmentRecurrencePattern ExceptionInfo array from {@code blob} starting at {@code arPos}.
      * Each ExceptionInfo represents a moved/modified recurring occurrence.
      * Returns the number of exceptions added to {@code result}.
-     *
+     * <p>
      * MS-OXOCAL §2.2.1.44.2 — AppointmentRecurrencePattern layout at arPos:
-     *   WriterVersion2(4) ReaderVersion2(4) StartTimeOffset(4) EndTimeOffset(4) ExceptionCount(2)
-     *   ExceptionInfo[ExceptionCount]: StartDateTime(4) EndDateTime(4) OriginalStartDate(4) OverrideFlags(2) [optional fields]
+     * WriterVersion2(4) ReaderVersion2(4) StartTimeOffset(4) EndTimeOffset(4) ExceptionCount(2)
+     * ExceptionInfo[ExceptionCount]: StartDateTime(4) EndDateTime(4) OriginalStartDate(4) OverrideFlags(2) [optional fields]
+     *
+     * <p>Why this matters: moved occurrences are not represented by the base recurrence
+     * rule alone. Reading ExceptionInfo keeps edits made in Outlook (time, subject,
+     * location) in sync with Google.
      */
     int readExceptionOccurrences(byte[] blob, int arPos, ZoneId zone,
-                                  String baseId, String subject, String body,
-                                  String location, boolean allDay, int colorIndex,
-                                  DateRange range, List<OutlookEvent> result) {
+                                 String baseId, String subject, String body,
+                                 String location, boolean allDay, int colorIndex,
+                                 DateRange range, List<OutlookEvent> result) {
         if (blob.length < arPos + 18) return 0;
         ByteBuffer buf = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN);
         int exCount = buf.getShort(arPos + 16) & 0xFFFF;
-        int excPos  = arPos + 18;
-        int added   = 0;
+        int excPos = arPos + 18;
+        int added = 0;
         for (int i = 0; i < exCount && excPos + 14 <= blob.length; i++) {
-            long startMin = buf.getInt(excPos)     & 0xFFFFFFFFL;
-            long endMin   = buf.getInt(excPos + 4) & 0xFFFFFFFFL;
-            long origMin  = buf.getInt(excPos + 8) & 0xFFFFFFFFL;
+            long startMin = buf.getInt(excPos) & 0xFFFFFFFFL;
+            long endMin = buf.getInt(excPos + 4) & 0xFFFFFFFFL;
+            long origMin = buf.getInt(excPos + 8) & 0xFFFFFFFFL;
             int overFlags = buf.getShort(excPos + 12) & 0xFFFF;
             excPos += 14;
 
             // ExceptionInfo times are local-timezone wall-clock minutes from 1601
             ZonedDateTime excStart = localMinToZdt(startMin, zone);
-            ZonedDateTime excEnd   = localMinToZdt(endMin,   zone);
+            ZonedDateTime excEnd = localMinToZdt(endMin, zone);
 
-            String excSubject  = subject;
+            String excSubject = subject;
             String excLocation = location;
 
             // ARO_SUBJECT (0x0001): optional override
@@ -441,16 +499,19 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
 
             if (!excStart.isAfter(range.to()) && !excEnd.isBefore(range.from())) {
                 String excId = baseId + "_ex_" + origMin;
-                log.debug("  Including modified occurrence of '{}' at {} (origMin={})", excSubject, excStart, origMin);
+                logDebug("  Including modified occurrence of '%s' at %s", excSubject, excStart);
                 result.add(new OutlookEvent(excId, excSubject, body, excLocation, excStart, excEnd, allDay, colorIndex));
                 added++;
             } else {
-                log.debug("  Modified occurrence of '{}' at {} is outside range — skipping", excSubject, excStart);
+                logDebug("  Modified occurrence of '%s' at %s is outside range — skipping", excSubject, excStart);
             }
         }
         return added;
     }
 
+    /**
+     * Computes the next recurrence candidate from MS-OXOCAL frequency and period.
+     */
     private ZonedDateTime nextOccurrence(ZonedDateTime current, short recurFreq, int period) {
         int p = Math.max(1, period);
         return switch (recurFreq) {
@@ -458,23 +519,31 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             case 0x200B -> current.plusWeeks(p);         // Weekly
             case 0x200C, 0x200D -> current.plusMonths(p);// Monthly
             case 0x200E -> current.plusMonths(p);        // Yearly (period=12 months)
-            default     -> current.plusDays(1);
+            default -> current.plusDays(1);
         };
     }
 
     // ── Event conversion ──────────────────────────────────────────────────────────
 
+    /**
+     * Converts a single Outlook appointment item into internal DTO form.
+     *
+     * <p>Single events use {@link #resolveZone(com.pff.PSTTimeZone)} to preserve
+     * libpst's fixed-offset timestamp semantics.
+     */
     private OutlookEvent toOutlookEvent(PSTAppointment appt) {
         try {
-            String id       = String.valueOf(appt.getDescriptorNodeId());
-            String subject  = appt.getSubject();
-            String body     = appt.getBody();
+            String id = String.valueOf(appt.getDescriptorNodeId());
+            String subject = appt.getSubject();
+            String body = appt.getBody();
             String location = appt.getLocation();
-            boolean allDay  = appt.getSubType();
-            ZoneId zone     = resolveZone(appt.getStartTimeZone());
+            boolean allDay = appt.getSubType();
+            ZoneId zone = resolveZone(appt.getStartTimeZone());
             ZonedDateTime start = toZdt(appt.getStartTime(), zone);
-            ZonedDateTime end   = toZdt(appt.getEndTime(),   zone);
-            if (start == null) return null;
+            ZonedDateTime end = toZdt(appt.getEndTime(), zone);
+            if (start == null) {
+                return null;
+            }
             return new OutlookEvent(id, subject, body, location, start, end, allDay, appt.getColor());
         } catch (Exception e) {
             log.debug("Skipping appointment due to parse error: {}", e.getMessage());
@@ -482,42 +551,70 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
         }
     }
 
+    /**
+     * Resolves timezone for single-instance appointments.
+     *
+     * <p>libpst start/end times are already adjusted by the standard offset and usually
+     * should not receive another DST shift. Therefore fixed-offset {@code SimpleTimeZone}
+     * is preferred over DST-aware mappings in this method.
+     */
     ZoneId resolveZone(com.pff.PSTTimeZone pstTz) {
         if (pstTz == null) return ZoneId.of("UTC");
         // libpst returns getStartTime() already adjusted by the Windows "Standard Time" offset
         // (no DST applied). Use the fixed-offset SimpleTimeZone first so the math is consistent.
         // WINDOWS_TZ_MAP (DST-aware IANA zones) would shift times by an extra hour in summer.
         java.util.SimpleTimeZone stz = pstTz.getSimpleTimeZone();
-        if (stz != null) { try { return stz.toZoneId(); } catch (Exception ignored) {} }
+        if (stz != null) {
+            try {
+                return stz.toZoneId();
+            } catch (Exception ignored) {
+            }
+        }
         // Fallback: try the name as IANA directly, then map
         String name = pstTz.getName();
         if (name != null && !name.isBlank()) {
-            try { return ZoneId.of(name); } catch (Exception ignored) {}
+            try {
+                return ZoneId.of(name);
+            } catch (Exception ignored) {
+            }
             ZoneId mapped = WINDOWS_TZ_MAP.get(name);
             if (mapped != null) return mapped;
         }
         return ZoneId.of("UTC");
     }
 
-    /** DST-aware zone for recurrence expansion: wall-clock time must be preserved across DST transitions. */
+    /**
+     * DST-aware zone for recurrence expansion: wall-clock time must be preserved across DST transitions.
+     */
     ZoneId resolveIanaZone(com.pff.PSTTimeZone pstTz) {
         if (pstTz == null) return ZoneId.of("UTC");
         String name = pstTz.getName();
         if (name != null && !name.isBlank()) {
-            try { return ZoneId.of(name); } catch (Exception ignored) {}
+            try {
+                return ZoneId.of(name);
+            } catch (Exception ignored) {
+            }
             ZoneId mapped = WINDOWS_TZ_MAP.get(name);
-            if (mapped != null) return mapped;
+            if (mapped != null) {
+                return mapped;
+            }
         }
         // Fallback to fixed-offset (no DST correction possible)
         java.util.SimpleTimeZone stz = pstTz.getSimpleTimeZone();
-        if (stz != null) { try { return stz.toZoneId(); } catch (Exception ignored) {} }
+        if (stz != null) {
+            try {
+                return stz.toZoneId();
+            } catch (Exception ignored) {
+            }
+        }
         return ZoneId.of("UTC");
     }
 
     private static final Map<String, ZoneId> WINDOWS_TZ_MAP;
+
     static {
         Map<String, ZoneId> m = new java.util.HashMap<>();
-        try (java.io.InputStream is = OutlookCalendarAdapter.class.getClassLoader()
+        try (java.io.InputStream is = OutlookCalendarService.class.getClassLoader()
                 .getResourceAsStream("windows-timezones.properties");
              java.io.BufferedReader reader = is != null
                      ? new java.io.BufferedReader(new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8))
@@ -531,15 +628,22 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
                     if (eq <= 0) continue;
                     String key = line.substring(0, eq).strip();
                     String val = line.substring(eq + 1).strip();
-                    try { m.put(key, ZoneId.of(val)); } catch (Exception ignored) {}
+                    try {
+                        m.put(key, ZoneId.of(val));
+                    } catch (Exception ignored) {
+                    }
                 }
             }
         } catch (Exception e) {
+            log.warn("Failed to load windows-timezones.properties, fallback to SimpleTimeZone offset: {}", e.getMessage());
             // fallback: map stays empty, SimpleTimeZone offset used instead
         }
         WINDOWS_TZ_MAP = java.util.Collections.unmodifiableMap(m);
     }
 
+    /**
+     * Converts legacy {@link Date} to {@link ZonedDateTime} in the selected zone.
+     */
     private ZonedDateTime toZdt(Date date, ZoneId zone) {
         if (date == null) return null;
         return date.toInstant().atZone(zone);
@@ -557,6 +661,9 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
         return ldt.atZone(zone);
     }
 
+    /**
+     * Validates that the configured Outlook profile path exists and is readable.
+     */
     private void validateProfilePath(String profilePath) {
         if (profilePath == null || profilePath.isBlank())
             throw new IllegalArgumentException("Outlook profile path is not configured");
@@ -565,4 +672,10 @@ public class OutlookCalendarAdapter implements OutlookCalendarPort {
             throw new IllegalArgumentException(
                     "Outlook profile path does not exist or is not readable: " + profilePath);
     }
+
+    private void logDebug(String fmt, Object... args) {
+        String msg = args.length == 0 ? fmt : String.format(fmt, args);
+        logService.debug(msg);
+    }
 }
+

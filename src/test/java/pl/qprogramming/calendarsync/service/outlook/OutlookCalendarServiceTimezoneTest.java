@@ -1,13 +1,14 @@
-package pl.qprogramming.calendarsync.adapter;
+package pl.qprogramming.calendarsync.service.outlook;
 
 import com.pff.PSTTimeZone;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import pl.qprogramming.calendarsync.service.LogService;
 
 import java.time.*;
 import java.time.Instant;
@@ -16,28 +17,15 @@ import java.util.SimpleTimeZone;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-/**
- * Tests for timezone resolution logic in OutlookCalendarAdapter.
- *
- * Key design decisions under test:
- *  - resolveZone()     uses fixed-offset SimpleTimeZone (libpst already applied standard offset)
- *  - resolveIanaZone() uses DST-aware IANA zone (recurrence expansion must preserve wall-clock)
- */
 @ExtendWith(MockitoExtension.class)
-class OutlookCalendarAdapterTimezoneTest {
+class OutlookCalendarServiceTimezoneTest {
 
-    @Mock
-    PSTTimeZone pstTz;
-
-    OutlookCalendarAdapter adapter;
+    @Mock PSTTimeZone pstTz;
+    @Mock LogService logService;
+    @InjectMocks OutlookCalendarService service;
 
     // CET standard offset: UTC+1 — using numeric ID so toZoneId() returns a fixed offset
     static final SimpleTimeZone CET_SIMPLE = new SimpleTimeZone(3600_000, "GMT+01:00");
-
-    @BeforeEach
-    void setUp() {
-        adapter = new OutlookCalendarAdapter();
-    }
 
     // ── resolveZone (fixed-offset for single events) ─────────────────────────
 
@@ -50,7 +38,7 @@ class OutlookCalendarAdapterTimezoneTest {
         void prefersSimpleTimeZoneOverIanaName() {
             when(pstTz.getSimpleTimeZone()).thenReturn(CET_SIMPLE);
 
-            ZoneId zone = adapter.resolveZone(pstTz);
+            ZoneId zone = service.resolveZone(pstTz);
 
             // Must be fixed offset (GMT+01:00), NOT Europe/Warsaw (which is DST-aware)
             assertThat(zone.normalized()).isEqualTo(ZoneOffset.ofHours(1));
@@ -60,7 +48,7 @@ class OutlookCalendarAdapterTimezoneTest {
         @Test
         @DisplayName("returns UTC when PSTTimeZone is null")
         void nullReturnsUtc() {
-            assertThat(adapter.resolveZone(null)).isEqualTo(ZoneId.of("UTC"));
+            assertThat(service.resolveZone(null)).isEqualTo(ZoneId.of("UTC"));
         }
 
         @Test
@@ -69,7 +57,7 @@ class OutlookCalendarAdapterTimezoneTest {
             when(pstTz.getSimpleTimeZone()).thenReturn(null);
             when(pstTz.getName()).thenReturn("Central European Standard Time");
 
-            ZoneId zone = adapter.resolveZone(pstTz);
+            ZoneId zone = service.resolveZone(pstTz);
 
             assertThat(zone.getId()).isEqualTo("Europe/Warsaw");
         }
@@ -80,7 +68,7 @@ class OutlookCalendarAdapterTimezoneTest {
             when(pstTz.getSimpleTimeZone()).thenReturn(null);
             when(pstTz.getName()).thenReturn("Some Unknown TZ");
 
-            assertThat(adapter.resolveZone(pstTz)).isEqualTo(ZoneId.of("UTC"));
+            assertThat(service.resolveZone(pstTz)).isEqualTo(ZoneId.of("UTC"));
         }
     }
 
@@ -95,7 +83,7 @@ class OutlookCalendarAdapterTimezoneTest {
         void returnsDstAwareZoneForWindowsName() {
             when(pstTz.getName()).thenReturn("Central European Standard Time");
 
-            ZoneId zone = adapter.resolveIanaZone(pstTz);
+            ZoneId zone = service.resolveIanaZone(pstTz);
 
             assertThat(zone.getId()).isEqualTo("Europe/Warsaw");
         }
@@ -103,7 +91,7 @@ class OutlookCalendarAdapterTimezoneTest {
         @Test
         @DisplayName("returns UTC when PSTTimeZone is null")
         void nullReturnsUtc() {
-            assertThat(adapter.resolveIanaZone(null)).isEqualTo(ZoneId.of("UTC"));
+            assertThat(service.resolveIanaZone(null)).isEqualTo(ZoneId.of("UTC"));
         }
 
         @Test
@@ -112,7 +100,7 @@ class OutlookCalendarAdapterTimezoneTest {
             when(pstTz.getName()).thenReturn("Unknown TZ");
             when(pstTz.getSimpleTimeZone()).thenReturn(CET_SIMPLE);
 
-            ZoneId zone = adapter.resolveIanaZone(pstTz);
+            ZoneId zone = service.resolveIanaZone(pstTz);
 
             // SimpleTimeZone("GMT+01:00") → toZoneId() returns fixed offset zone
             assertThat(zone.normalized()).isEqualTo(ZoneOffset.ofHours(1));
@@ -123,7 +111,7 @@ class OutlookCalendarAdapterTimezoneTest {
         void recognisesDirectIanaName() {
             when(pstTz.getName()).thenReturn("Asia/Kolkata");
 
-            ZoneId zone = adapter.resolveIanaZone(pstTz);
+            ZoneId zone = service.resolveIanaZone(pstTz);
 
             assertThat(zone.getId()).isEqualTo("Asia/Kolkata");
         }
@@ -148,7 +136,7 @@ class OutlookCalendarAdapterTimezoneTest {
         void ianaZonePreservesWallClockAcrossDst() {
             when(pstTz.getName()).thenReturn("Central European Standard Time");
 
-            ZoneId ianaZone = adapter.resolveIanaZone(pstTz);
+            ZoneId ianaZone = service.resolveIanaZone(pstTz);
             assertThat(ianaZone.getId()).isEqualTo("Europe/Warsaw");
 
             // Base: 2026-03-06 09:00 CET (UTC+1) = 08:00 UTC (before DST on Mar 29)
@@ -166,7 +154,7 @@ class OutlookCalendarAdapterTimezoneTest {
         void fixedOffsetShiftsWallClockAfterDst() {
             when(pstTz.getSimpleTimeZone()).thenReturn(CET_SIMPLE);
 
-            ZoneId fixedZone = adapter.resolveZone(pstTz); // +01:00
+            ZoneId fixedZone = service.resolveZone(pstTz); // +01:00
 
             // Base: 2026-03-06 09:00 +01:00 = 08:00 UTC
             ZonedDateTime base = ZonedDateTime.of(2026, 3, 6, 9, 0, 0, 0, fixedZone);
@@ -183,7 +171,7 @@ class OutlookCalendarAdapterTimezoneTest {
         void noDstZoneUnaffected() {
             when(pstTz.getName()).thenReturn("India Standard Time");
 
-            ZoneId ianaZone = adapter.resolveIanaZone(pstTz);
+            ZoneId ianaZone = service.resolveIanaZone(pstTz);
             assertThat(ianaZone.getId()).isEqualTo("Asia/Calcutta");
 
             ZonedDateTime base = ZonedDateTime.of(2026, 3, 6, 9, 30, 0, 0, ianaZone);
@@ -195,3 +183,4 @@ class OutlookCalendarAdapterTimezoneTest {
         }
     }
 }
+

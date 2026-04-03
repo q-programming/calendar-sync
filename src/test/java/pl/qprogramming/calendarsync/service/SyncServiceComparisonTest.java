@@ -7,7 +7,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import pl.qprogramming.calendarsync.port.*;
+import pl.qprogramming.calendarsync.service.google.GoogleCalendarService;
+import pl.qprogramming.calendarsync.service.google.GoogleEvent;
+import pl.qprogramming.calendarsync.service.outlook.OutlookCalendarService;
+import pl.qprogramming.calendarsync.service.outlook.OutlookEvent;
 
 import java.time.*;
 
@@ -23,8 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(MockitoExtension.class)
 class SyncServiceComparisonTest {
 
-    @Mock OutlookCalendarPort outlookPort;
-    @Mock GoogleCalendarPort googlePort;
+    @Mock OutlookCalendarService outlookService;
+    @Mock GoogleCalendarService googleService;
     @Mock ProfileService profileService;
     @Mock SettingsService settingsService;
     @Mock LogService logService;
@@ -33,7 +36,7 @@ class SyncServiceComparisonTest {
 
     @BeforeEach
     void setUp() {
-        syncService = new SyncService(outlookPort, googlePort, profileService, settingsService, logService);
+        syncService = new SyncService(outlookService, googleService, profileService, settingsService, logService);
     }
 
     // ── eqInstant ────────────────────────────────────────────────────────────
@@ -159,6 +162,53 @@ class SyncServiceComparisonTest {
             GoogleEvent ge  = googleEvent("Meeting", null, START_OFFSET, END_OFFSET);
 
             assertThat(syncService.isChanged(oe, ge)).isFalse();
+        }
+
+        // ── All-day event tests ───────────────────────────────────────────────
+
+        OutlookEvent allDayOutlook(String subject, ZonedDateTime start, ZonedDateTime end) {
+            return new OutlookEvent("id1", subject, "body", null, start, end, true, 0);
+        }
+
+        GoogleEvent allDayGoogle(String summary, ZonedDateTime start, ZonedDateTime end) {
+            return new GoogleEvent("gid1", "id1", summary, "body", null, start, end, true);
+        }
+
+        @Test
+        @DisplayName("all-day: Outlook=00:00+02:00, Google=00:00Z (same date, different instant) → not changed")
+        void allDaySameDateDifferentInstant() {
+            // Outlook reads 2026-04-30 as 00:00 CET/CEST → different UTC instant than Google's 00:00Z
+            ZonedDateTime outlookStart = ZonedDateTime.of(2026, 4, 30, 2, 0, 0, 0, ZoneOffset.UTC); // +02:00 local→UTC
+            ZonedDateTime outlookEnd   = ZonedDateTime.of(2026, 5,  1, 2, 0, 0, 0, ZoneOffset.UTC);
+            ZonedDateTime googleStart  = ZonedDateTime.of(2026, 4, 30, 0, 0, 0, 0, ZoneOffset.UTC);  // date-only→00:00Z
+            ZonedDateTime googleEnd    = ZonedDateTime.of(2026, 5,  1, 0, 0, 0, 0, ZoneOffset.UTC);
+
+            OutlookEvent oe = allDayOutlook("Event", outlookStart, outlookEnd);
+            GoogleEvent  ge = allDayGoogle("Event",  googleStart,  googleEnd);
+
+            assertThat(syncService.isChanged(oe, ge)).isFalse();
+        }
+
+        @Test
+        @DisplayName("all-day: different dates → changed")
+        void allDayDifferentDates() {
+            ZonedDateTime d1 = ZonedDateTime.of(2026, 4, 30, 0, 0, 0, 0, ZoneOffset.UTC);
+            ZonedDateTime d2 = ZonedDateTime.of(2026, 5,  1, 0, 0, 0, 0, ZoneOffset.UTC);
+
+            OutlookEvent oe = allDayOutlook("Event", d1, d1.plusDays(1));
+            GoogleEvent  ge = allDayGoogle("Event",  d2, d2.plusDays(1)); // wrong date
+
+            assertThat(syncService.isChanged(oe, ge)).isTrue();
+        }
+
+        @Test
+        @DisplayName("all-day: subject changed → changed")
+        void allDaySubjectChanged() {
+            ZonedDateTime d = ZonedDateTime.of(2026, 4, 30, 0, 0, 0, 0, ZoneOffset.UTC);
+            OutlookEvent oe = allDayOutlook("LEAD cycle closes", d, d.plusDays(1));
+            GoogleEvent  ge = allDayGoogle("Old Subject",       d, d.plusDays(1));
+
+            assertThat(syncService.isChanged(oe, ge)).isTrue();
         }
     }
 }

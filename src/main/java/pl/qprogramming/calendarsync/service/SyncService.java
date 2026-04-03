@@ -6,7 +6,12 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import pl.qprogramming.calendarsync.entity.SyncRunEntity;
 import pl.qprogramming.calendarsync.entity.SyncRunStatus;
-import pl.qprogramming.calendarsync.port.*;
+import pl.qprogramming.calendarsync.model.DateRange;
+import pl.qprogramming.calendarsync.service.google.BatchWriteResult;
+import pl.qprogramming.calendarsync.service.google.GoogleCalendarService;
+import pl.qprogramming.calendarsync.service.google.GoogleEvent;
+import pl.qprogramming.calendarsync.service.outlook.OutlookCalendarService;
+import pl.qprogramming.calendarsync.service.outlook.OutlookEvent;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -18,19 +23,43 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
+/**
+ * Orchestrates the one-way Outlook → Google Calendar synchronisation process.
+ *
+ * <p>The sync pipeline runs as follows:
+ * <ol>
+ *   <li>Read all Outlook appointments in the configured date window.</li>
+ *   <li>Read all Google events previously created by this sync (identified by a private marker).</li>
+ *   <li>Diff the two sets: classify each Outlook event as CREATE, UPDATE, or SKIP.</li>
+ *   <li>Mark Google events with no matching Outlook counterpart as DELETE.</li>
+ *   <li>Apply all changes to Google Calendar via a single batch write.</li>
+ * </ol>
+ *
+ * <p>Concurrency: only one sync may run at a time. An {@link java.util.concurrent.atomic.AtomicBoolean}
+ * guards the {@link #runSync()} entry point; additional calls while a sync is active are rejected
+ * immediately with a {@link SyncRunStatus#FAILED} skipped-run record.
+ *
+ * <p>The heavy lifting ({@link #executeSync}) is dispatched via Spring's {@code @Async}
+ * so that the HTTP request creating the run returns immediately with the run id.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class SyncService {
 
-    private final OutlookCalendarPort outlookPort;
-    private final GoogleCalendarPort googlePort;
+    private final OutlookCalendarService outlookService;
+    private final GoogleCalendarService googleService;
     private final ProfileService profileService;
     private final SettingsService settingsService;
     private final LogService logService;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    /**
+     * Returns {@code true} if a sync is currently in progress on any thread.
+     *
+     * @return {@code true} while {@link #executeSync} has not yet completed
+     */
     public boolean isRunning() {
         return running.get();
     }
@@ -58,6 +87,12 @@ public class SyncService {
         return run;
     }
 
+    /**
+     * Async wrapper that delegates to {@link #doSync} and releases the running flag when done.
+     * Annotated with {@code @Async} so it executes on a task-executor thread, not the caller's.
+     *
+     * @param run the pre-persisted run entity to update with results
+     */
     @Async
     public void executeSync(SyncRunEntity run) {
         try {
@@ -67,6 +102,12 @@ public class SyncService {
         }
     }
 
+    /**
+     * Core sync logic: reads events from both calendars, computes the diff, writes changes to Google.
+     * Updates {@code run} with final counts and status before returning.
+     *
+     * @param run mutable run entity that tracks progress and is saved at the end
+     */
     private void doSync(SyncRunEntity run) {
         var settings = settingsService.getOrCreate();
         var profile  = profileService.getOrCreate();
@@ -91,7 +132,7 @@ public class SyncService {
 
                 logService.info("Starting sync. Range: %s to %s", formatDate(range.from()), formatDate(range.to()));
 
-                List<OutlookEvent> outlookEvents = outlookPort.readEvents(outlookPath, outlookCalendarId, range);
+                List<OutlookEvent> outlookEvents = outlookService.readEvents(outlookPath, outlookCalendarId, range);
                 logService.info("Read %d Outlook events", outlookEvents.size());
                 for (OutlookEvent oe : outlookEvents) {
                     logService.debug("  [OUTLOOK] %s | %s → %s | allDay=%s | location=%s",
@@ -99,7 +140,7 @@ public class SyncService {
                             oe.allDay(), oe.location());
                 }
 
-                List<GoogleEvent> googleEvents = googlePort.readEvents(googleCalendarId, range);
+                List<GoogleEvent> googleEvents = googleService.readEvents(googleCalendarId, range);
                 logService.info("Read %d Google (sync-managed) events", googleEvents.size());
                 for (GoogleEvent ge : googleEvents) {
                     logService.debug("  [GOOGLE] %s | %s → %s | outlookId=%s",
@@ -132,7 +173,9 @@ public class SyncService {
                                 oe.location() != null && !oe.location().isBlank() ? " @ " + oe.location() : "");
                         toUpdate.put(existing.id(), oe);
                     } else {
-                        logService.debug("  [SKIP] No changes: %s", oe.subject());
+                        logService.debug("  [SKIP] No changes: \"%s\" — %s%s",
+                                oe.subject(), formatEventTime(oe.start()),
+                                oe.location() != null && !oe.location().isBlank() ? " @ " + oe.location() : "");
                     }
                 }
 
@@ -144,7 +187,7 @@ public class SyncService {
                     }
                 }
 
-                BatchWriteResult writeResult = googlePort.batchWrite(
+                BatchWriteResult writeResult = googleService.batchWrite(
                         googleCalendarId, toCreate, toUpdate, toDeleteIds, settings.isSyncColorLabels());
                 created = writeResult.created();
                 updated = writeResult.updated();
@@ -172,13 +215,35 @@ public class SyncService {
         });
     }
 
+    /**
+     * Determines whether an Outlook event has changed relative to its previously synced Google counterpart.
+     *
+     * <p>Fields compared: subject, location, start/end time. For all-day events only the local
+     * date is compared (time components are timezone-offset artefacts and must be ignored).
+     * For timed events the comparison is instant-based so zone-id differences don't produce
+     * false positives.
+     *
+     * @param oe the current Outlook appointment
+     * @param ge the existing Google event mapped from the same Outlook id
+     * @return {@code true} if any tracked field has changed and the Google event should be updated
+     */
     boolean isChanged(OutlookEvent oe, GoogleEvent ge) {
-        return !eq(oe.subject(), ge.summary())
-                || !eqStr(oe.location(), ge.location())
-                || !eqInstant(oe.start(), ge.start())
-                || !eqInstant(oe.end(), ge.end());
+        if (!eq(oe.subject(), ge.summary())) return true;
+        if (!eqStr(oe.location(), ge.location())) return true;
+        // All-day events: compare date only — times are arbitrary (timezone-offset artifacts)
+        if (oe.allDay() || ge.allDay()) {
+            return !eqDate(oe.start(), ge.start()) || !eqDate(oe.end(), ge.end());
+        }
+        return !eqInstant(oe.start(), ge.start()) || !eqInstant(oe.end(), ge.end());
     }
 
+    /**
+     * Null-safe equality check for arbitrary objects.
+     *
+     * @param a first value
+     * @param b second value
+     * @return {@code true} if both are {@code null} or {@code a.equals(b)}
+     */
     private boolean eq(Object a, Object b) {
         if (a == null && b == null) return true;
         if (a == null || b == null) return false;
@@ -190,6 +255,13 @@ public class SyncService {
         String na = (a == null || a.isBlank()) ? null : a;
         String nb = (b == null || b.isBlank()) ? null : b;
         return java.util.Objects.equals(na, nb);
+    }
+
+    /** Compare ZonedDateTimes by local date only (for all-day events where time is meaningless). */
+    private boolean eqDate(java.time.ZonedDateTime a, java.time.ZonedDateTime b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.toLocalDate().equals(b.toLocalDate());
     }
 
     /** Compare ZonedDateTimes by instant (ignores zone ID differences like Europe/Warsaw vs +02:00). */
