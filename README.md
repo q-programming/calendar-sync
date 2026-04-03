@@ -112,10 +112,13 @@ start msedge http://localhost:9090/calendarsync
 ```
 
 > Swap `msedge` for `chrome` or `firefox` if preferred.
-
+ 
+Sample bat and icons can be found in docs folder
 ---
 
 ### Linux / macOS / WSL — `start.sh`
+
+It's possible to run on WSL and consume a Windows-hosted Outlook profile, but for best performance run natively on Windows if possible, as file access to the `.pst` / `.ost` under WSL is quite slow.
 
 ```bash
 #!/usr/bin/env bash

@@ -130,6 +130,12 @@
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
         </dependency>
+        <!-- Force guava 33.4.5+ to eliminate sun.misc.Unsafe::objectFieldOffset warning (fixed in 33.4.5) -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.5.0-jre</version>
+        </dependency>
         <!-- Swagger annotations for OpenAPI-generated code (no UI, no springdoc runtime) -->
         <dependency>
             <groupId>io.swagger.core.v3</groupId>
