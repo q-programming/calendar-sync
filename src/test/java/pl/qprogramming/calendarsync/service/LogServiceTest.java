@@ -27,7 +27,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -272,27 +271,46 @@ class LogServiceTest {
             oldRun.setId("old-run");
             oldRun.setStartedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(31));
 
-            var entry = new SyncLogEntryEntity();
-            entry.setRunId("old-run");
-
-            when(syncRunRepository.findAllByStartedAtBefore(any())).thenReturn(List.of(oldRun));
-            when(syncLogEntryRepository.findByRunIdOrderByTimestampAsc("old-run")).thenReturn(List.of(entry));
+            when(syncRunRepository.findAllByOrderByStartedAtDesc()).thenReturn(List.of(oldRun));
 
             logService.removeOldEntries();
 
-            verify(syncLogEntryRepository).deleteAll(List.of(entry));
-            verify(syncRunRepository).delete(oldRun);
+            verify(syncLogEntryRepository).deleteAllByRunIdIn(List.of("old-run"));
+            verify(syncRunRepository).deleteAllByIdIn(List.of("old-run"));
+        }
+
+        @Test
+        @DisplayName("deletes runs beyond the most recent 100")
+        void deletesRunsBeyondMaxLimit() {
+            List<SyncRunEntity> all = new java.util.ArrayList<>();
+            for (int i = 0; i < 100; i++) {
+                var filler = new SyncRunEntity();
+                filler.setId("filler-" + i);
+                filler.setStartedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(1));
+                all.add(filler);
+            }
+            var excess = new SyncRunEntity();
+            excess.setId("excess");
+            excess.setStartedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(2));
+            all.add(excess);
+
+            when(syncRunRepository.findAllByOrderByStartedAtDesc()).thenReturn(all);
+
+            logService.removeOldEntries();
+
+            verify(syncLogEntryRepository).deleteAllByRunIdIn(List.of("excess"));
+            verify(syncRunRepository).deleteAllByIdIn(List.of("excess"));
         }
 
         @Test
         @DisplayName("does nothing when no old runs exist")
         void doesNothingWhenNoOldRuns() {
-            when(syncRunRepository.findAllByStartedAtBefore(any())).thenReturn(List.of());
+            when(syncRunRepository.findAllByOrderByStartedAtDesc()).thenReturn(List.of());
 
             logService.removeOldEntries();
 
-            verify(syncLogEntryRepository, never()).deleteAll(any());
-            verify(syncRunRepository, never()).delete(any(SyncRunEntity.class));
+            verify(syncLogEntryRepository, never()).deleteAllByRunIdIn(any());
+            verify(syncRunRepository, never()).deleteAllByIdIn(any());
         }
     }
 

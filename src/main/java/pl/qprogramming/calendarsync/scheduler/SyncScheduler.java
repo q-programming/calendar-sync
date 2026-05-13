@@ -21,7 +21,7 @@ import java.util.concurrent.ScheduledFuture;
  * starting the first schedule:
  * <ol>
  *   <li><b>Remove old entries</b> – deletes sync run records and their log entries that are
- *       older than 30 days to prevent unbounded database growth.</li>
+ *       older than 30 days or beyond the most recent 100 runs.</li>
  *   <li><b>Fail stale runs</b> – any run left in {@code RUNNING} state from a previous JVM
  *       process is marked as {@code FAILED} with an explanatory message, so the UI does not
  *       show phantom in-progress syncs after a restart.</li>
@@ -48,7 +48,7 @@ public class SyncScheduler {
      * Runs housekeeping on startup, then arms the periodic sync schedule.
      *
      * <ul>
-     *   <li>Removes log entries and run records older than 30 days.</li>
+     *   <li>Removes log entries and run records older than 30 days or beyond the most recent 100.</li>
      *   <li>Transitions any orphaned {@code RUNNING} runs to {@code FAILED}.</li>
      *   <li>Schedules the first (and subsequent) periodic sync via {@link #reschedule()}.</li>
      * </ul>

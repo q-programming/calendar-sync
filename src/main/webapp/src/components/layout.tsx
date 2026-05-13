@@ -1,5 +1,5 @@
-import { Link, useLocation } from 'react-router-dom';
-import { createContext, useContext, useState } from 'react';
+import {Link, useLocation} from 'react-router-dom';
+import {createContext, useContext, useState} from 'react';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import List from '@mui/material/List';
@@ -16,6 +16,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import DescriptionIcon from '@mui/icons-material/Description';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import MenuIcon from '@mui/icons-material/Menu';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 
 const DRAWER_WIDTH = 240;
 const DRAWER_COLLAPSED_WIDTH = 64;
@@ -28,6 +29,7 @@ const navigation = [
     { name: 'Profile', href: '/profile', icon: <PersonIcon /> },
     { name: 'Settings', href: '/settings', icon: <SettingsIcon /> },
     { name: 'Logs', href: '/logs', icon: <DescriptionIcon /> },
+    {name: 'Help', href: '/help', icon: <HelpOutlineIcon/>},
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {

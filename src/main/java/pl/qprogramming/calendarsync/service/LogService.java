@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import pl.qprogramming.calendarsync.dto.LogLevel;
 import pl.qprogramming.calendarsync.entity.SyncLogEntryEntity;
 import pl.qprogramming.calendarsync.entity.SyncRunEntity;
@@ -16,7 +17,9 @@ import pl.qprogramming.calendarsync.repository.SyncRunRepository;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 /**
  * Dual-purpose logging service that writes both to SLF4J and to the database.
@@ -34,7 +37,7 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class LogService {
-
+    static final int MAX_RUNS = 100;
     private final SyncRunRepository syncRunRepository;
     private final SyncLogEntryRepository syncLogEntryRepository;
 
@@ -214,14 +217,27 @@ public class LogService {
     }
 
     /**
-     * Deletes sync runs (and their associated log entries) that started more than 30 days ago.
-     * Intended to be called periodically to keep the database from growing unbounded.
+     * Deletes sync runs (and their associated log entries) that are either older than 30 days
+     * or beyond the most recent {@value #MAX_RUNS} runs. A single ordered query is used;
+     * both rules are applied in-memory via stream filter, then deleted in batch.
      */
+    @Transactional
     public void removeOldEntries() {
-        syncRunRepository.findAllByStartedAtBefore(OffsetDateTime.now(ZoneOffset.UTC).minusDays(30)).forEach(run -> {
-            syncLogEntryRepository.deleteAll(syncLogEntryRepository.findByRunIdOrderByTimestampAsc(run.getId()));
-            syncRunRepository.delete(run);
-        });
+        OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusDays(30);
+        List<SyncRunEntity> allByDate = syncRunRepository.findAllByOrderByStartedAtDesc();
+        List<String> idsToDelete = IntStream.range(0, allByDate.size())
+                .mapToObj(i -> Map.entry(i, allByDate.get(i)))
+                .filter(entry -> entry.getKey() >= MAX_RUNS || isExpired(entry.getValue(), cutoff))
+                .map(entry -> entry.getValue().getId())
+                .toList();
+        if (!idsToDelete.isEmpty()) {
+            syncLogEntryRepository.deleteAllByRunIdIn(idsToDelete);
+            syncRunRepository.deleteAllByIdIn(idsToDelete);
+        }
+    }
+
+    private boolean isExpired(SyncRunEntity run, OffsetDateTime cutoff) {
+        return run.getStartedAt() != null && run.getStartedAt().isBefore(cutoff);
     }
 
     /**

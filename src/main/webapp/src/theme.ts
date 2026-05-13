@@ -1,4 +1,4 @@
-import { createTheme } from '@mui/material/styles';
+import {createTheme} from '@mui/material/styles';
 
 const theme = createTheme({
     palette: {
@@ -14,9 +14,11 @@ const theme = createTheme({
         },
         warning: {
             main: '#f59e0b',
+            contrastText: '#fff',
         },
         success: {
             main: '#10b981',
+            contrastText: '#fff',
         },
         background: {
             default: '#f1f5f9',
@@ -48,6 +50,12 @@ const theme = createTheme({
         borderRadius: 4,
     },
     components: {
+        MuiAlert: {
+            styleOverrides: {
+                filledSuccess: {color: '#fff'},
+                filledWarning: {color: '#fff'},
+            },
+        },
         MuiCard: {
             styleOverrides: {
                 root: {
