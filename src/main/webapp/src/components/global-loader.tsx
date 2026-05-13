@@ -9,21 +9,21 @@ import { selectIsLoading } from '@/store/loadingSlice';
  * A 150ms delay prevents flicker on fast responses.
  */
 export function GlobalLoader() {
-  const isLoading = useAppSelector(selectIsLoading);
-  const [show, setShow] = useState(false);
+    const isLoading = useAppSelector(selectIsLoading);
+    const [show, setShow] = useState(false);
 
-  useEffect(() => {
-    if (isLoading) {
-      const t = setTimeout(() => setShow(true), 150);
-      return () => clearTimeout(t);
-    } else {
-      setShow(false);
-    }
-  }, [isLoading]);
+    useEffect(() => {
+        if (isLoading) {
+            const t = setTimeout(() => setShow(true), 150);
+            return () => clearTimeout(t);
+        } else {
+            setShow(false);
+        }
+    }, [isLoading]);
 
-  return (
-    <Backdrop open={show} sx={{ zIndex: 9999, color: '#fff', backdropFilter: 'blur(2px)' }}>
-      <CircularProgress color="inherit" />
-    </Backdrop>
-  );
+    return (
+        <Backdrop open={show} sx={{ zIndex: 9999, color: '#fff', backdropFilter: 'blur(2px)' }}>
+            <CircularProgress color='inherit' />
+        </Backdrop>
+    );
 }

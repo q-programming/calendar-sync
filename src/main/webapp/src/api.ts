@@ -6,11 +6,11 @@
 export * from '../client-api';
 export { Configuration } from '../client-api/configuration';
 export {
-  GoogleApi,
-  HealthApi,
-  LogsApi,
-  OutlookApi,
-  ProfileApi,
-  SettingsApi,
-  SyncApi,
+    GoogleApi,
+    HealthApi,
+    LogsApi,
+    OutlookApi,
+    ProfileApi,
+    SettingsApi,
+    SyncApi,
 } from '../client-api/api';

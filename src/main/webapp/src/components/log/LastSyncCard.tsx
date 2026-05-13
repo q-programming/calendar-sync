@@ -13,37 +13,53 @@ import LogTableHead from '@/components/log/LogTableHead';
 import LogRows from '@/components/log/LogRows';
 
 interface Props {
-  maxRows?: number;
+    maxRows?: number;
 }
 
 const LastSyncCard = ({ maxRows = 1 }: Props) => {
-  const navigate = useNavigate();
-  const list = useAppSelector(s => s.logs.list);
-  const logs = (list?.content ?? []).slice(0, maxRows);
+    const navigate = useNavigate();
+    const list = useAppSelector((s) => s.logs.list);
+    const logs = (list?.content ?? []).slice(0, maxRows);
 
-  return (
-    <Card>
-      <CardHeader
-        title="Last Sync"
-        titleTypographyProps={{ fontWeight: 600 }}
-        action={<Button size="small" onClick={() => navigate('/logs')}>View All</Button>}
-      />
-      <CardContent sx={{ pt: 0 }}>
-        {logs.length > 0 ? (
-          <TableContainer>
-            <Table size="small">
-              <LogTableHead />
-              <TableBody><LogRows logs={logs} /></TableBody>
-            </Table>
-          </TableContainer>
-        ) : (
-          <Box sx={{ py: 3, textAlign: 'center', border: '2px dashed', borderColor: 'divider', borderRadius: 2 }}>
-            <Typography variant="body2" color="text.secondary">No sync runs yet.</Typography>
-          </Box>
-        )}
-      </CardContent>
-    </Card>
-  );
+    return (
+        <Card>
+            <CardHeader
+                title='Last Sync'
+                titleTypographyProps={{ fontWeight: 600 }}
+                action={
+                    <Button size='small' onClick={() => navigate('/logs')}>
+                        View All
+                    </Button>
+                }
+            />
+            <CardContent sx={{ pt: 0 }}>
+                {logs.length > 0 ? (
+                    <TableContainer>
+                        <Table size='small'>
+                            <LogTableHead />
+                            <TableBody>
+                                <LogRows logs={logs} />
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                ) : (
+                    <Box
+                        sx={{
+                            py: 3,
+                            textAlign: 'center',
+                            border: '2px dashed',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                        }}
+                    >
+                        <Typography variant='body2' color='text.secondary'>
+                            No sync runs yet.
+                        </Typography>
+                    </Box>
+                )}
+            </CardContent>
+        </Card>
+    );
 };
 
 export default LastSyncCard;

@@ -28,7 +28,7 @@ export default defineConfig({
         },
     },
     test: {
-        fileParallelism: false,
+        fileParallelism: true,
         globals: true,
         testTimeout: 10000,
         environment: 'jsdom',

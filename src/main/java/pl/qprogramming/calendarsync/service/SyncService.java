@@ -205,9 +205,15 @@ public class SyncService {
 
             } catch (Exception e) {
                 log.error("Sync failed", e);
-                run.setStatus(SyncRunStatus.FAILED);
-                run.setMessage(e.getMessage());
-                logService.error("Sync failed: %s", e.getMessage());
+                if (isGoogleTokenExpired(e)) {
+                    run.setStatus(SyncRunStatus.GOOGLE_TOKEN_EXPIRED);
+                    run.setMessage("Google token has expired or been revoked. Please reconnect your Google account.");
+                    logService.error("Sync failed: Google token expired or revoked");
+                } else {
+                    run.setStatus(SyncRunStatus.FAILED);
+                    run.setMessage(e.getMessage());
+                    logService.error("Sync failed: %s", e.getMessage());
+                }
             } finally {
                 run.setFinishedAt(OffsetDateTime.now(ZoneOffset.UTC));
                 logService.saveRun(run);
@@ -282,5 +288,20 @@ public class SyncService {
     private String formatDate(java.time.ZonedDateTime zdt) {
         if (zdt == null) return "?";
         return zdt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm"));
+    }
+
+    /**
+     * Returns {@code true} if the exception (or any cause in its chain) indicates
+     * that the Google OAuth token has expired or been revoked ({@code invalid_grant}).
+     */
+    private boolean isGoogleTokenExpired(Throwable t) {
+        while (t != null) {
+            String msg = t.getMessage();
+            if (msg != null && msg.contains("invalid_grant")) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 }

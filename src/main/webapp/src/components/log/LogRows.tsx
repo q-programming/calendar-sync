@@ -7,38 +7,61 @@ import { formatLocal } from '@/utils/dateUtils';
 import { getStatusChipSx } from '@/utils/colorUtils';
 
 interface Props {
-  logs: SyncRun[];
+    logs: SyncRun[];
 }
 
 const LogRows = ({ logs }: Props) => {
-  const navigate = useNavigate();
-  return (
-    <>
-      {logs.map(log => (
-        <TableRow key={log.id} hover sx={{ cursor: 'pointer' }}
-          onClick={() => navigate(`/logs/${log.id}`)}
-          data-testid={`row-log-${log.id}`}>
-          <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
-            {formatLocal(log.startedAt, 'MMM d, yyyy HH:mm:ss')}
-          </TableCell>
-          <TableCell>
-            <Chip
-              label={log.status}
-              color={log.status === SyncRunStatus.Success ? 'success' : log.status === SyncRunStatus.Running ? 'warning' : 'error'}
-              size="small"
-              sx={getStatusChipSx(log.status)}
-            />
-          </TableCell>
-          <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{log.created ?? '-'}</TableCell>
-          <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{log.updated ?? '-'}</TableCell>
-          <TableCell align="right" sx={{ fontFamily: 'monospace' }}>{log.deleted ?? '-'}</TableCell>
-          <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {log.message || '-'}
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
+    const navigate = useNavigate();
+    return (
+        <>
+            {logs.map((log) => (
+                <TableRow
+                    key={log.id}
+                    hover
+                    sx={{ cursor: 'pointer' }}
+                    onClick={() => navigate(`/logs/${log.id}`)}
+                    data-testid={`row-log-${log.id}`}
+                >
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                        {formatLocal(log.startedAt, 'MMM d, yyyy HH:mm:ss')}
+                    </TableCell>
+                    <TableCell>
+                        <Chip
+                            label={log.status}
+                            color={
+                                log.status === SyncRunStatus.Success
+                                    ? 'success'
+                                    : log.status === SyncRunStatus.Running
+                                      ? 'warning'
+                                      : 'error'
+                            }
+                            size='small'
+                            sx={getStatusChipSx(log.status)}
+                        />
+                    </TableCell>
+                    <TableCell align='right' sx={{ fontFamily: 'monospace' }}>
+                        {log.created ?? '-'}
+                    </TableCell>
+                    <TableCell align='right' sx={{ fontFamily: 'monospace' }}>
+                        {log.updated ?? '-'}
+                    </TableCell>
+                    <TableCell align='right' sx={{ fontFamily: 'monospace' }}>
+                        {log.deleted ?? '-'}
+                    </TableCell>
+                    <TableCell
+                        sx={{
+                            maxWidth: 300,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        {log.message || '-'}
+                    </TableCell>
+                </TableRow>
+            ))}
+        </>
+    );
 };
 
 export default LogRows;

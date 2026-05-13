@@ -6,13 +6,13 @@ import logsReducer from './logsSlice';
 import loadingReducer from './loadingSlice';
 
 export const store = configureStore({
-  reducer: {
-    profile: profileReducer,
-    settings: settingsReducer,
-    sync: syncReducer,
-    logs: logsReducer,
-    loading: loadingReducer,
-  },
+    reducer: {
+        profile: profileReducer,
+        settings: settingsReducer,
+        sync: syncReducer,
+        logs: logsReducer,
+        loading: loadingReducer,
+    },
 });
 
 export type RootState = ReturnType<typeof store.getState>;

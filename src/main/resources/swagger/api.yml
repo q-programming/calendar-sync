@@ -238,7 +238,7 @@ components:
   schemas:
     SyncRunStatus:
       type: string
-      enum: [RUNNING, SUCCESS, FAILED]
+      enum: [RUNNING, SUCCESS, FAILED, GOOGLE_TOKEN_EXPIRED]
 
     HealthStatus:
       type: object
