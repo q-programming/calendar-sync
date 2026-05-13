@@ -153,6 +153,19 @@ describe('LogRows', () => {
         expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1);
     });
 
+    it('should show "Token Expired" chip label for google token expired runs', () => {
+        render(
+            <MemoryRouter>
+                <table>
+                    <tbody>
+                        <LogRows logs={[makeSyncRun({ status: SyncRunStatus.GoogleTokenExpired })]} />
+                    </tbody>
+                </table>
+            </MemoryRouter>,
+        );
+        expect(screen.getByText('Token Expired')).toBeInTheDocument();
+    });
+
     it('should navigate to log details on row click', async () => {
         const user = userEvent.setup();
         render(

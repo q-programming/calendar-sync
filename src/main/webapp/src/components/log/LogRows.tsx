@@ -27,7 +27,11 @@ const LogRows = ({ logs }: Props) => {
                     </TableCell>
                     <TableCell>
                         <Chip
-                            label={log.status}
+                            label={
+                                log.status === SyncRunStatus.GoogleTokenExpired
+                                    ? 'Token Expired'
+                                    : log.status
+                            }
                             color={
                                 log.status === SyncRunStatus.Success
                                     ? 'success'
