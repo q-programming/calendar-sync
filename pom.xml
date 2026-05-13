@@ -49,8 +49,8 @@
 
     <properties>
         <java.version>21</java.version>
-        <node.version>v20.11.1</node.version>
-        <npm.version>10.2.4</npm.version>
+        <node.version>v22.15.0</node.version>
+        <npm.version>10.9.2</npm.version>
         <frontend-maven-plugin.version>1.12.1</frontend-maven-plugin.version>
         <lombok.version>1.18.44</lombok.version>
         <packaging.type>jar</packaging.type> <!-- Default packaging type -->
@@ -246,6 +246,18 @@
                             <arguments>install</arguments>
                         </configuration>
                     </execution>
+                    <!-- Run frontend tests (vitest, headless Chromium) -->
+                    <execution>
+                        <id>npm-test</id>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <phase>test</phase>
+                        <configuration>
+                            <arguments>run test:ci</arguments>
+                            <skip>${skipTests}</skip>
+                        </configuration>
+                    </execution>
                     <!-- Build frontend -->
                     <execution>
                         <id>npm-build</id>
@@ -366,6 +378,22 @@
                             </configOptions>
                             <!-- uncomment to generate typescript model manually -->
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
                     </execution>
                 </executions>
             </plugin>
