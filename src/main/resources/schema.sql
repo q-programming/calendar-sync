@@ -42,12 +42,19 @@ CREATE TABLE IF NOT EXISTS sync_run (
   id VARCHAR(36) NOT NULL PRIMARY KEY,
   started_at TIMESTAMP NOT NULL,
   finished_at TIMESTAMP,
-  status VARCHAR(20),
+    status VARCHAR
+(
+    30
+),
   created INT DEFAULT 0,
   updated INT DEFAULT 0,
   deleted INT DEFAULT 0,
   message VARCHAR(2000)
 );
+
+-- Drop any Hibernate-generated CHECK constraint on status so new enum values (e.g. GOOGLE_TOKEN_EXPIRED)
+-- are not rejected on existing databases. Redefines the column without a check constraint.
+ALTER TABLE sync_run ALTER COLUMN status VARCHAR(30);
 
 CREATE TABLE IF NOT EXISTS sync_log_entry (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
